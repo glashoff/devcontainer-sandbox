@@ -1,0 +1,27 @@
+{
+  // Definition of the shared image local/devcontainer-sandbox, built on the
+  // host by host/build-image.py. Projects use the image, not this file.
+  "name": "devcontainer-sandbox",
+  "build": { "dockerfile": "Dockerfile" },
+
+  // Tools for all projects. Adding one is safe; removing one may break
+  // projects that rely on it. Debian packages go into the Dockerfile.
+  "features": {
+    // Firewall, sshd hardening, no sudo. Node comes from the Dockerfile,
+    // Claude Code from the daily update layer (refresh.Dockerfile).
+    "./sandbox": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    // Debian's Python (updated by the daily apt upgrade), no extra pipx tools.
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "os-provided",
+      "installTools": false
+    },
+    // Rust is installed in the Dockerfile, not as a feature (see the comment there).
+    // System libraries for browsers started by Playwright; the browsers
+    // themselves are downloaded by each project (README "Browsers").
+    "./playwright-deps": {}
+  },
+
+  // The sandbox feature assumes this user (home /home/vscode).
+  "remoteUser": "vscode"
+}

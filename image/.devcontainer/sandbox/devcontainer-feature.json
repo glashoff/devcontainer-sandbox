@@ -1,0 +1,29 @@
+{
+  "id": "sandbox",
+  "version": "1.1.0",
+  "name": "Sandbox",
+  "description": "Sandbox for running Claude Code (or other agents): internet only, no local network, no sudo, SSH login with a host key only, no agent forwarding.",
+  "dependsOn": {
+    "ghcr.io/devcontainers/features/sshd:1": {}
+  },
+  "entrypoint": "/usr/local/share/sandbox/init-firewall.py",
+  "capAdd": ["NET_ADMIN"],
+  "securityOpt": ["no-new-privileges"],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "mounts": [
+    {
+      "source": "claude-code-config-${devcontainerId}",
+      "target": "/home/vscode/.claude",
+      "type": "volume"
+    },
+    {
+      "source": "vscodium-server-${devcontainerId}",
+      "target": "/home/vscode/.vscodium-server",
+      "type": "volume"
+    }
+  ],
+  "postAttachCommand": "/usr/local/share/sandbox/check-ssh-agent.py"
+}

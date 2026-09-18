@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily build of the dev container sandbox image
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+# Catch up after the laptop was suspended or off; never wakes it.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

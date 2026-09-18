@@ -1,0 +1,47 @@
+{
+  "name": "PROJECT",
+
+  // Shared sandbox with all common tools, built daily on this host
+  // (devcontainer-build-image). devcontainer-start recreates the container
+  // when a new build is available.
+  "image": "local/devcontainer-sandbox:latest",
+
+  // Project-only tools, e.g. "ghcr.io/devcontainers/features/go:1": {}.
+  // Never add docker-in-docker / docker-outside-of-docker: that is root on the host.
+  // "features": {},
+
+  // Public DNS instead of the LAN router, which is blocked.
+  // sshd is published on a random port on the host's loopback interface only.
+  "runArgs": [
+    "--dns=1.1.1.1", "--dns=9.9.9.9", "--dns-search=.",
+    "--publish=127.0.0.1::2222"
+    // Optional GPU (README "GPU"); devcontainer-start grants the device
+    // groups inside the container by itself.
+    // , "--device=/dev/dri"
+  ],
+
+  // Creates missing bind-mount sources on the host (CLAUDE.md, SSH key).
+  "initializeCommand": "python3 ${localEnv:HOME}/.local/share/devcontainer-sandbox/initialize.py",
+
+  "mounts": [
+    // Global Claude instructions from the host, read-only.
+    "source=${localEnv:HOME}/.claude/CLAUDE.md,target=/home/vscode/.claude/CLAUDE.md,type=bind,readonly",
+    // The container config itself is read-only from inside the container.
+    "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,readonly",
+    // Public key for SSH login (created by initialize.py), read-only.
+    "source=${localEnv:HOME}/.ssh/devcontainer_ed25519.pub,target=/etc/ssh/devcontainer/authorized_keys,type=bind,readonly"
+    // Optional Wayland (README "Wayland"), together with containerEnv below:
+    // , "source=${localEnv:XDG_RUNTIME_DIR}/${localEnv:WAYLAND_DISPLAY},target=/tmp/wayland-0,type=bind"
+  ]
+
+  // Optional Wayland: GUI apps from the container open as windows on the
+  // host desktop. No X11, no D-Bus.
+  // , "containerEnv": {
+  //   "WAYLAND_DISPLAY": "/tmp/wayland-0",
+  //   "XDG_RUNTIME_DIR": "/tmp/runtime-vscode",
+  //   "GDK_BACKEND": "wayland",
+  //   "QT_QPA_PLATFORM": "wayland",
+  //   "MOZ_ENABLE_WAYLAND": "1",
+  //   "ELECTRON_OZONE_PLATFORM_HINT": "wayland"
+  // }
+}

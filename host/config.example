@@ -1,0 +1,30 @@
+# Local configuration for the dev container sandbox, copied by setup.py to
+# ~/.config/devcontainer-sandbox/config. Nothing in here belongs in the
+# repository: it names your server and your mail account.
+#
+# Parsed as KEY=VALUE, never executed. Everything is optional; without a
+# section its feature simply stays off.
+
+# --- Server access (setup-ca.py) ------------------------------------------
+# How this host administers the server, as user@host. Needs root there, since
+# it changes the sshd configuration.
+#SERVER_ADMIN=root@server.example.org
+
+# One user per project, comma separated: each project logs in as its own user,
+# so that a compromised container reaches only that project's files on the
+# server. setup-ca.py creates them if the server does not have them yet,
+# without a password and without extra groups, and allows them to use
+# certificates. The server decides this list, not a project: a project asking
+# for a user that is not in it gets nothing. Never "root" - that would let any
+# project become root.
+#SERVER_PRINCIPAL_USERS=gameserver,blog
+
+# --- Mail about failed builds (build-finished.py) --------------------------
+# Use a send-only mailbox, never your main account: its password sits on the
+# laptop, the machine this sandbox exists to protect.
+#SMTP_HOST=smtp.example.org
+#SMTP_PORT=465
+#SMTP_USER=builds@example.org
+#MAIL_FROM=builds@example.org
+#MAIL_TO=me@example.org
+#SMTP_PASSWORD=the-password-of-that-send-only-mailbox

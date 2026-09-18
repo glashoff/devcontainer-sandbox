@@ -1,0 +1,7 @@
+{
+  "id": "playwright-deps",
+  "version": "1.0.0",
+  "name": "Playwright system dependencies",
+  "description": "System libraries for Chromium and Firefox started by Playwright. Installing them needs root, which the sandbox does not have at run time; the browsers are downloaded by each project.",
+  "installsAfter": ["ghcr.io/devcontainers/features/node"]
+}

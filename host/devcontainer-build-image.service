@@ -1,0 +1,16 @@
+[Unit]
+Description=Build the dev container sandbox image
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/devcontainer-sandbox/build-image.py
+# Building must not slow down the desktop.
+Nice=19
+IOSchedulingClass=idle
+
+# Desktop notification, and a mail if the build failed and one is configured
+# (see build-finished.py). The leading "-" keeps a build successful when
+# nobody is logged in or the mail cannot be sent.
+ExecStopPost=-%h/.local/share/devcontainer-sandbox/build-finished.py
