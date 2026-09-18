@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 DEST = Path.home() / ".local/share/devcontainer-sandbox"
 BIN = Path.home() / ".local/bin"
 UNIT_DIR = Path.home() / ".config/systemd/user"
+APPLICATIONS_DIR = Path.home() / ".local/share/applications"
 
 UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer"]
 COMMANDS = {"devcontainer-start": "start.py",
@@ -72,6 +73,23 @@ def replace_old_installation() -> None:
     print(f"Removed the copies in {DEST}")
 
 
+def install_desktop_entry() -> None:
+    """Adds "Dev container" to the file manager's Open With menu for folders.
+
+    A desktop entry cannot expand ~, so the real path is written into it.
+    """
+    APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    entry = APPLICATIONS_DIR / "devcontainer-start.desktop"
+    entry.write_text((HERE / "devcontainer-start.desktop").read_text()
+                     .replace("@START@", str(DEST / "start.py")))
+    entry.chmod(0o644)
+    if shutil.which("update-desktop-database"):
+        subprocess.run(["update-desktop-database", str(APPLICATIONS_DIR)],
+                       capture_output=True)
+    print(f"File manager entry in {entry.name}: right-click a project folder, "
+          "Open With > Dev container")
+
+
 def systemctl(*args: str) -> int:
     return subprocess.run(["systemctl", "--user", *args]).returncode
 
@@ -100,6 +118,8 @@ def main() -> None:
     print(f"Commands in {BIN}: {', '.join(COMMANDS)}")
     if str(BIN) not in os.environ.get("PATH", "").split(":"):
         print(f"Note: {BIN} is not in PATH", file=sys.stderr)
+
+    install_desktop_entry()
 
     for name in UNITS:
         install(HERE / name, UNIT_DIR, 0o644)

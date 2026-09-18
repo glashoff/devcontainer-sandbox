@@ -25,7 +25,7 @@ You run inside a sandboxed dev container (base-devcontainer). Installed to
 | Rust (stable), cargo, rustfmt, clippy | `/usr/local/cargo/bin`, toolchains in `/usr/local/rustup` |
 | gcc, g++, make (`build-essential`), gdb, cmake, ninja, pkg-config | `/usr/bin` |
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
-| GitHub CLI `gh`, git | `/usr/bin` (not logged in) |
+| GitHub CLI `gh`, git | `/usr/bin` (not logged in; git has a name and email, but no credentials) |
 | Playwright browser system libraries | system; browsers are downloaded per project |
 | Wayland client libraries, Mesa (OpenGL/Vulkan) | system |
 

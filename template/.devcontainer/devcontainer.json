@@ -26,6 +26,9 @@
   "mounts": [
     // Global Claude instructions from the host, read-only.
     "source=${localEnv:HOME}/.claude/CLAUDE.md,target=/home/vscode/.claude/CLAUDE.md,type=bind,readonly",
+    // Git identity from the host (created by initialize.py), read-only;
+    // no credential helpers, containers cannot reach remote repositories.
+    "source=${localEnv:HOME}/.config/devcontainer-sandbox/gitconfig-${localWorkspaceFolderBasename},target=/home/vscode/.gitconfig,type=bind,readonly",
     // The container config itself is read-only from inside the container.
     "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,readonly",
     // Public key for SSH login (created by initialize.py), read-only.

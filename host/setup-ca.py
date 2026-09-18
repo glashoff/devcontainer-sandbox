@@ -111,11 +111,19 @@ def main() -> None:
     users = [user.strip() for user in
              config.get("SERVER_PRINCIPAL_USERS", "").split(",") if user.strip()]
     for user in users:
-        if user == "root":
-            sys.exit("SERVER_PRINCIPAL_USERS must not contain root: every "
-                     "project could then become root on the server.")
         if not re.fullmatch(r"[a-z_][a-z0-9_-]*", user):
             sys.exit(f"Invalid user name in SERVER_PRINCIPAL_USERS: '{user}'")
+    if "root" in users:
+        # Allowed, because it is the owner's server, but never quietly: this
+        # takes the server out of everything the sandbox protects.
+        print("\n*** root is in SERVER_PRINCIPAL_USERS ***\n"
+              "A project asking for it gets a root certificate for this "
+              "server. Everything in such a container - the agent and every\n"
+              "npm or pip dependency it pulls - can then take the server over "
+              "for good: root leaves a key of its own behind, which the\n"
+              "24-hour expiry does nothing against. Grant it only to a project "
+              "that provisions this server, or use a disposable one.\n",
+              file=sys.stderr)
     if not users:
         print("No SERVER_PRINCIPAL_USERS: the server will trust the CA but "
               "refuse every login, because no project has a user there yet.")

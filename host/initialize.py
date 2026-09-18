@@ -2,12 +2,21 @@
 """Runs on the host before the container is created (initializeCommand of every
 project, and start.py). Docker refuses to start the container if a bind-mount
 source is missing, so create the files referenced in devcontainer.json "mounts".
+
+The project folder is the first argument, or the working directory, which is
+what the devcontainer CLI runs initializeCommand in.
 """
 
+import re
 import subprocess
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import CONFIG_DIR, read_config  # noqa: E402
+
 home = Path.home()
+workspace = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
 
 claude_md = home / ".claude/CLAUDE.md"
 if not claude_md.exists():
@@ -22,3 +31,46 @@ if not key.with_name(key.name + ".pub").is_file():
     key.parent.chmod(0o700)
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
                     "-C", "devcontainer", "-f", str(key)], check=True)
+
+
+def git_identity(setting: str) -> str:
+    """One setting from the host's git configuration, empty if it is unset."""
+    result = subprocess.run(["git", "config", "--global", "--get", setting],
+                            capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def project_settings() -> dict[str, str]:
+    """GIT_* settings from the project's .devcontainer/sandbox.env."""
+    settings = {}
+    sandbox_env = workspace / ".devcontainer/sandbox.env"
+    if sandbox_env.is_file():
+        for line in sandbox_env.read_text().splitlines():
+            match = re.match(r"\s*(GIT_[A-Z_]+)\s*=\s*(.*?)\s*$", line)
+            if match and not line.lstrip().startswith("#"):
+                settings[match.group(1)] = match.group(2)
+    return settings
+
+
+# Just enough git configuration to commit inside the container. Credential
+# helpers are never taken along: containers have no access to remote
+# repositories, and pushing stays a job for the host.
+#
+# The name and email come from the project's sandbox.env, else from the local
+# configuration, else from this host's git identity. One file per project, so
+# that starting one project does not change the identity under another
+# project's running container. Rewritten in place on every start.
+host_settings = read_config()
+settings = project_settings()
+name = (settings.get("GIT_USER_NAME") or host_settings.get("GIT_USER_NAME")
+        or git_identity("user.name"))
+email = (settings.get("GIT_USER_EMAIL") or host_settings.get("GIT_USER_EMAIL")
+         or git_identity("user.email"))
+
+lines = ["# Written by the host (initialize.py of base-devcontainer) and",
+         "# mounted read-only. Identity only, no credentials.",
+         "[init]", "\tdefaultBranch = main"]
+if name and email:
+    lines += ["[user]", f"\tname = {name}", f"\temail = {email}"]
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+(CONFIG_DIR / f"gitconfig-{workspace.name}").write_text("\n".join(lines) + "\n")

@@ -18,7 +18,8 @@ from the host.
 | `sudo` / becoming root | blocked |
 | Host home directory, `~/.ssh`, host `~/.claude` | not mounted (except `~/.claude/CLAUDE.md` and `~/.ssh/devcontainer_ed25519.pub`, read-only) |
 | Host SSH agent | not forwarded (refused by sshd, removed on attach if it gets in anyway) |
-| Host git credentials and `~/.gitconfig` | not forwarded (editor settings, see [Host setup](#host-setup)) |
+| Host git credentials | not forwarded; containers cannot reach remote repositories |
+| git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup)) |
 | `.devcontainer/` of the project | read-only |
 | Project folder (`/workspaces/<name>`) | read-write |
 | Host desktop (Wayland), GPU | not available, unless enabled per project ([Wayland](#wayland), [GPU](#gpu)) |
@@ -111,14 +112,35 @@ devcontainer-build-image --full        # first build, takes a while
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start` and
 `devcontainer-build-image` commands in `~/.local/bin`, installs the systemd
-units, starts the daily build timer (`--no-timer` to skip that) and puts a
-configuration template in `~/.config/devcontainer-sandbox/config`. Since
+units, starts the daily build timer (`--no-timer` to skip that), puts a
+configuration template in `~/.config/devcontainer-sandbox/config` and adds a
+**Dev container** entry to the file manager: right-click a project folder,
+*Open With*, and it starts the container and opens the editor. Started that
+way it runs in a terminal window that stays open if something went wrong. Since
 nothing is copied, changes in `host/` take effect right away and setup.py only
 runs once; the fixed path is what the systemd unit needs.
 
 That configuration file holds everything that must not be in a repository: the
-server dev containers may reach, and the mail account for failed builds (see
-[config.example](host/config.example)). With `--server`, setup.py also runs
+server dev containers may reach, the mail account for failed builds, and the
+git identity for commits made inside a container (see
+[config.example](host/config.example)).
+
+Committing in a container needs a name and an email address.
+[initialize.py](host/initialize.py) writes one gitconfig per project to
+`~/.config/devcontainer-sandbox/gitconfig-<project>` before every start, and
+the project mounts it read-only as `~/.gitconfig`. Credential helpers are
+never copied — there is nothing to push to from inside a container.
+
+The identity is taken from the first of these that has one, so a project can
+commit under a different name than the host:
+
+1. `GIT_USER_NAME` and `GIT_USER_EMAIL` in the project's
+   `.devcontainer/sandbox.env`
+2. the same two settings in `~/.config/devcontainer-sandbox/config`
+3. the host's own git identity
+
+One file per project, because a shared one would change the identity under
+another project's running container. With `--server`, setup.py also runs
 [setup-ca.py](host/setup-ca.py), see [Server access](#server-access).
 
 The scripts run on the host with your rights, and the image definition next to
@@ -336,7 +358,14 @@ server, adds `TrustedUserCAKeys` and `AuthorizedPrincipalsFile` in
 `/etc/ssh/sshd_config.d/`, and reloads sshd after `sshd -t` accepted the
 configuration. For every user it writes a principals file, and creates the
 user first if the server does not have it: `useradd --create-home`, no
-password, no group beyond its own. It refuses `root` as a principal.
+password, no group beyond its own.
+
+`root` is accepted, with a warning. It is worth understanding what it costs:
+everything in that container — the agent and every dependency it installs —
+can then take the server over permanently, since root can leave a key of its
+own behind and the 24-hour expiry does nothing against that. The laptop stays
+protected, the server does not. Grant it only to a project whose job is
+provisioning that server, and prefer a disposable server for testing.
 
 A new project therefore means one more user: add it to the list and run
 setup-ca.py again. Users that are already there stay as they are — an existing

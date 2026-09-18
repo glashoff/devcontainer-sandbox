@@ -240,6 +240,10 @@ def main():
                         help="editor command (default: $DEVCONTAINER_EDITOR, codium or code)")
     parser.add_argument("--yes", action="store_true",
                         help="add the SSH host entry to ~/.ssh/config without asking")
+    parser.add_argument("--pause-on-error", action="store_true",
+                        help="wait for a key press when something went wrong; "
+                             "for the file manager entry, whose window would "
+                             "otherwise close with the message in it")
     args = parser.parse_args()
 
     workspace = Path(args.project).expanduser()
@@ -261,7 +265,8 @@ def main():
     # Create bind-mount sources on the host. The same script also runs as
     # initializeCommand, but inside the CLI container ssh-keygen may not work.
     script_dir = Path(__file__).resolve().parent
-    subprocess.run([sys.executable, str(script_dir / "initialize.py")], check=True)
+    subprocess.run([sys.executable, str(script_dir / "initialize.py"),
+                    str(workspace)], check=True)
     if not SSH_KEY.is_file():
         die(f"SSH key {SSH_KEY} not found")
 
@@ -370,11 +375,26 @@ Host {ssh_host}
         # Without SSH_AUTH_SOCK there is no agent to forward, even if all other
         # safeguards failed. Has no effect if the editor is already running.
         environment = {k: v for k, v in os.environ.items() if k != "SSH_AUTH_SOCK"}
+        # start_new_session: started from the file manager, this script runs in
+        # a terminal window that closes the moment it ends, which would take
+        # the editor down with it (same process group). Its output goes
+        # nowhere for the same reason.
         subprocess.Popen(
             [editor, "--folder-uri",
              f"vscode-remote://ssh-remote+{ssh_host}{remote_folder}"],
-            env=environment)
+            env=environment, start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as stop:
+        # die() exits with its message as the code; print it ourselves, so the
+        # window started from the file manager can be held open afterwards.
+        if isinstance(stop.code, str):
+            print(stop.code, file=sys.stderr)
+        if stop.code and "--pause-on-error" in sys.argv and sys.stdin.isatty():
+            input("\nPress Enter to close this window.")
+        raise SystemExit(1 if stop.code else 0)

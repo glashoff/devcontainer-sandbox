@@ -1,0 +1,14 @@
+[Desktop Entry]
+# Installed by setup.py to ~/.local/share/applications/, which fills in the
+# path of start.py below (a desktop entry cannot expand ~).
+# MimeType=inode/directory puts it into the file manager's "Open With" menu.
+Type=Application
+Name=Dev container
+Comment=Start this project's sandbox container and open it in the editor
+Exec=@START@ --pause-on-error %f
+Icon=utilities-terminal
+Terminal=true
+MimeType=inode/directory;
+Categories=Development;
+Keywords=devcontainer;sandbox;container;
+StartupNotify=true
