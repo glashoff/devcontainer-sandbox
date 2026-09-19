@@ -67,7 +67,7 @@ name = (settings.get("GIT_USER_NAME") or host_settings.get("GIT_USER_NAME")
 email = (settings.get("GIT_USER_EMAIL") or host_settings.get("GIT_USER_EMAIL")
          or git_identity("user.email"))
 
-lines = ["# Written by the host (initialize.py of base-devcontainer) and",
+lines = ["# Written by the host (initialize.py of devcontainer-sandbox) and",
          "# mounted read-only. Identity only, no credentials.",
          "[init]", "\tdefaultBranch = main"]
 if name and email:

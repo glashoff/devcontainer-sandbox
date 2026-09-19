@@ -63,7 +63,7 @@ CA_KEY_EOF
 chmod 644 /etc/ssh/devcontainer_user_ca.pub
 
 cat > /etc/ssh/sshd_config.d/20-devcontainer-ca.conf <<'SSHD_EOF'
-# Accept 24-hour certificates from dev containers (base-devcontainer).
+# Accept 24-hour certificates from dev containers (devcontainer-sandbox).
 TrustedUserCAKeys /etc/ssh/devcontainer_user_ca.pub
 # Default deny: only users with a file here accept certificates, and only
 # for the names listed in it.

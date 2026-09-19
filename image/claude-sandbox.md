@@ -1,13 +1,13 @@
 # Sandbox dev container
 
-You run inside a sandboxed dev container (base-devcontainer). Installed to
+You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 `/etc/claude-code/CLAUDE.md` by the image build.
 
 ## Limits
 
 - No root, no `sudo`: you cannot install system packages (`apt`). If a tool is
   missing permanently, tell the user; it has to be added to the image
-  (base-devcontainer, `image/.devcontainer/`) on the host.
+  (devcontainer-sandbox, `image/.devcontainer/`) on the host.
 - Internet only: local networks (LAN, the Docker host) are blocked.
 - No credentials for remote git repositories: do not try to push or fetch
   private repositories; the user does that on the host.

@@ -99,8 +99,8 @@ Worth reading before trusting it with anything:
 ## Quick start
 
 ```sh
-git clone <this repository> ~/Projects/base-devcontainer
-cd ~/Projects/base-devcontainer
+git clone https://github.com/glashoff/devcontainer-sandbox.git
+cd devcontainer-sandbox
 python3 host/setup.py
 devcontainer-build-image --full        # first build, takes a while
 ```
