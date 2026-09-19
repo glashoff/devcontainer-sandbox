@@ -131,7 +131,7 @@ once.
 - C/C++: gcc (`build-essential`), clang, clangd, clang-format, clang-tidy,
   LLVM, lld, gdb, cmake, ninja
 - Rust: rustup with the current stable toolchain, rustfmt, clippy
-- System libraries for browsers started by Playwright ([Browsers](#browsers))
+- Chromium and Firefox for Playwright, ready to use ([Browsers](#browsers))
 - Wayland client libraries, Mesa (OpenGL/Vulkan, software rendering without GPU)
 
 Per project, in Docker volumes that survive rebuilds: the Claude Code login
@@ -336,17 +336,31 @@ large downloads out of them.
 
 ## Browsers
 
-The image only has the system libraries (installing them needs root). Each
-project downloads the browser matching its own Playwright version, as the normal
-user. To keep the download across the daily rebuild, store it in the project
-folder (add `.cache/` to `.gitignore`):
+Chromium and Firefox come with the image, in
+`/usr/local/share/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`), together with the
+system libraries they need. Nothing has to be downloaded in a project.
 
-```jsonc
-"containerEnv": {
-  "PLAYWRIGHT_BROWSERS_PATH": "${containerWorkspaceFolder}/.cache/ms-playwright"
-},
-"postCreateCommand": "npx playwright install chromium"
-```
+Playwright pins **one browser revision per release**: each version names the
+revision it wants in its own `browsers.json`, looks for exactly that directory,
+and refuses to start any other build. The image therefore installs the browsers
+with the same `playwright@latest` that a container will later invoke, and the
+weekly rebuild moves both forward together — Playwright releases less often than
+that, so they normally match.
+
+When they do not (a release landed since the last build, or a project pins an
+older Playwright for its own test suite), nothing breaks: the directory belongs
+to the user, so Playwright downloads the missing revision next to the others.
+That copy lives in the container's writable layer, which means it is private to
+that container and gone after the next recreation — the next image build brings
+the matching one.
+
+Do not set `PLAYWRIGHT_BROWSERS_PATH` per project. It would point Playwright at
+an empty directory and force a download that the image already covers.
+
+A project only needs Playwright in its `package.json` if the **project** uses it
+— a test suite that imports the API and has to pin a version for CI. For an
+agent driving a browser, Playwright is a tool like `curl`, and the MCP server
+below is enough.
 
 For Claude Code to control a browser, use the Playwright MCP server with
 Playwright's Chromium (its default, Google Chrome, needs root to install):

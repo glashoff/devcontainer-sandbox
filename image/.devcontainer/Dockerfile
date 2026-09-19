@@ -36,6 +36,23 @@ RUN git clone https://github.com/nvm-sh/nvm.git "$NVM_DIR" \
       && ln -sfn "$NVM_DIR/versions/node/$(nvm version default)" "$NVM_DIR/current"' \
  && chown -R vscode:vscode "$NVM_DIR"
 
+# Browsers for Playwright, so that nothing has to be downloaded at run time.
+# Playwright pins one browser revision per release (its browsers.json) and
+# refuses to start anything else, so the browsers are installed by the same
+# Playwright that will look for them later. The weekly rebuild of this image
+# moves both forward together; Playwright releases less often than that.
+#
+# PLAYWRIGHT_BROWSERS_PATH is the registry directory, for reading *and*
+# writing. It belongs to the user, not to root: a Playwright version that wants
+# a revision this image does not have then downloads it next to the others
+# instead of failing with a permission error. That copy lives in the
+# container's writable layer, so it is neither shared with another project nor
+# kept beyond the next recreation.
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright
+RUN npx --yes playwright@latest install chromium firefox \
+ && chown -R vscode:vscode "$PLAYWRIGHT_BROWSERS_PATH" \
+ && rm -rf /root/.npm
+
 # Rust, installed here instead of via ghcr.io/devcontainers/features/rust:1:
 # that feature adds "capAdd": ["SYS_PTRACE"] and "securityOpt":
 # ["seccomp=unconfined"] to the image metadata, which would turn off Docker's

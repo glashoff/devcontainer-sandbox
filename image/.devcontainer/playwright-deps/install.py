@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Installs the apt packages that browsers started by Playwright need.
 
-Runs as root while the image is built, started by install.sh next to it. No
-browser is downloaded here; each project downloads its own (README "Browsers").
+Runs as root while the image is built, started by install.sh next to it. The
+browsers themselves are installed by the Dockerfile, which needs no root at run
+time for them (README "Browsers"); only these libraries do.
 """
 
 import os

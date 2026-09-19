@@ -26,7 +26,7 @@ You run inside a sandboxed dev container (base-devcontainer). Installed to
 | gcc, g++, make (`build-essential`), gdb, cmake, ninja, pkg-config | `/usr/bin` |
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
 | GitHub CLI `gh`, git | `/usr/bin` (not logged in; git has a name and email, but no credentials) |
-| Playwright browser system libraries | system; browsers are downloaded per project |
+| Chromium and Firefox for Playwright | `/usr/local/share/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`) |
 | Wayland client libraries, Mesa (OpenGL/Vulkan) | system |
 
 ## Installing project dependencies without root
@@ -39,12 +39,20 @@ You run inside a sandboxed dev container (base-devcontainer). Installed to
 
 ## Browsers
 
-Download browsers with the project's own Playwright version, as the normal
-user: `npx playwright install chromium`. If `PLAYWRIGHT_BROWSERS_PATH` is set,
-they are stored in the project folder and survive recreation. For browser
-control via MCP, use Playwright's Chromium (Google Chrome would need root):
-`npx @playwright/mcp@latest --browser chromium`. Run browsers headless unless
-`WAYLAND_DISPLAY` is set.
+Chromium and Firefox are already installed, so do not download anything:
+
+```sh
+npx @playwright/mcp@latest --browser chromium
+```
+
+Use Playwright's Chromium; its default, Google Chrome, would need root. Run
+browsers headless unless `WAYLAND_DISPLAY` is set.
+
+If Playwright still asks for `playwright install`, its version wants a browser
+revision this image does not have. Running `npx playwright install chromium`
+then works (the directory is writable), but it downloads a few hundred MB that
+are lost on the next recreation — worth telling the user, since a rebuilt image
+would have the right one.
 
 ## Optional, per project
 
