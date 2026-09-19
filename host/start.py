@@ -94,6 +94,29 @@ def read_settings(path):
     return settings
 
 
+def watched_image(config_file):
+    """The image whose updates should recreate the container.
+
+    Usually "image" from devcontainer.json. A project that adds packages of
+    its own builds on top of the sandbox image with its own Dockerfile; then
+    its FROM line is what has to be watched, because that is what the daily
+    build renews.
+    """
+    config = load_jsonc(config_file)
+    if config.get("image"):
+        return config["image"]
+    build = config.get("build") or {}
+    dockerfile = config_file.parent / (build.get("dockerfile") or "Dockerfile")
+    if not dockerfile.is_file():
+        return None
+    for line in dockerfile.read_text().splitlines():
+        match = re.match(r"FROM\s+(\S+)", line)
+        # A FROM with a build argument cannot be resolved here.
+        if match and "$" not in match.group(1):
+            return match.group(1)
+    return None
+
+
 def image_age(image):
     """How old the image is, from 'Created' (RFC 3339 with nanoseconds)."""
     created = docker_value("image", "inspect", "-f", "{{.Created}}", image)
@@ -275,7 +298,7 @@ def main():
     # folder and the volumes survive, which is where everything of value lives.
     # Images from a registry are pulled first; local/ images are built here.
     rebuild = args.rebuild
-    image = load_jsonc(config_file).get("image")
+    image = watched_image(config_file)
     state_file = STATE_DIR / f"{name}-{digest}.image"
     image_id = None
     if image:

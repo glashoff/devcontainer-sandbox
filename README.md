@@ -22,7 +22,7 @@ from the host.
 | git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup)) |
 | `.devcontainer/` of the project | read-only |
 | Project folder (`/workspaces/<name>`) | read-write |
-| Host desktop (Wayland), GPU | not available, unless enabled per project ([Wayland](#wayland), [GPU](#gpu)) |
+| Host desktop (Wayland), audio, GPU | not available, unless enabled per project ([Wayland](#wayland), [Audio](#audio), [GPU](#gpu)) |
 | Server via SSH | not available, unless enabled per project ([Server access](#server-access)) |
 
 ## Tools in the image
@@ -244,8 +244,29 @@ is taken by the host's global instructions and `~/.claude` is a volume that
 image updates do not reach.
 
 Then `devcontainer-build-image`; projects get the tool on their next start.
-Adding is safe, removing may break projects that use the tool. A tool only one
-project needs goes into that project's `devcontainer.json` instead.
+Adding is safe, removing may break projects that use the tool.
+
+A tool only one project needs does not belong in the shared image. Packages that
+need root to install go into a project image instead, a `Dockerfile` next to the
+project's `devcontainer.json`:
+
+```dockerfile
+FROM local/devcontainer-sandbox:latest
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends PACKAGE... \
+ && rm -rf /var/lib/apt/lists/*
+```
+
+```jsonc
+"build": { "dockerfile": "Dockerfile" },   // instead of "image"
+```
+
+apt runs as root while that image is built; the container started from it has no
+root, and the sandbox settings (firewall, `NET_ADMIN`, `no-new-privileges`,
+volumes) are inherited from the base image's `devcontainer.metadata`.
+`devcontainer-start` reads the `FROM` line, so such a project is recreated by
+the daily build as well — which also rebuilds these layers every time, so keep
+large downloads out of them.
 
 ## Browsers
 
@@ -303,6 +324,33 @@ injecting input into them. What remains possible:
   then paste into a host terminal).
 - **Compositor bugs.** A client exploiting a bug in GNOME Shell would run in the
   desktop session, outside the container.
+
+## Audio
+
+Optional per project, and only useful together with [Wayland](#wayland): the
+container plays into the host's sound server. Uncomment the audio mount and
+`PULSE_SERVER` in `devcontainer.json` (see the template), then
+`devcontainer-start --rebuild`.
+
+Passed through is PipeWire's PulseAudio socket
+(`$XDG_RUNTIME_DIR/pulse/native`), not a sound card: the container talks to a
+server that decides what it may do, and it cannot reach ALSA devices or the
+kernel's sound drivers. Programs using libpulse then work as they are; programs
+using ALSA (SDL, Bevy's `bevy_audio`) need ALSA's PulseAudio plugin as their
+default device, which is a project image, not the shared one:
+
+```dockerfile
+FROM local/devcontainer-sandbox:latest
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libasound2-plugins \
+ && rm -rf /var/lib/apt/lists/* \
+ && printf 'pcm.!default pulse\nctl.!default pulse\n' > /etc/asound.conf
+```
+
+Check it with `speaker-test -t sine -l 1` (needs `alsa-utils`); on the host,
+`pw-dump | grep application.name` then lists the container's client. What this
+allows: the container can record from the microphone and see what is being
+played, because the PulseAudio protocol has no way to grant only playback.
 
 ## GPU
 

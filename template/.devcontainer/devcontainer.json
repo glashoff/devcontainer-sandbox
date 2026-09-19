@@ -35,6 +35,8 @@
     "source=${localEnv:HOME}/.ssh/devcontainer_ed25519.pub,target=/etc/ssh/devcontainer/authorized_keys,type=bind,readonly"
     // Optional Wayland (README "Wayland"), together with containerEnv below:
     // , "source=${localEnv:XDG_RUNTIME_DIR}/${localEnv:WAYLAND_DISPLAY},target=/tmp/wayland-0,type=bind"
+    // Optional audio (README "Audio"), together with PULSE_SERVER below:
+    // , "source=${localEnv:XDG_RUNTIME_DIR}/pulse/native,target=/tmp/pulse-native,type=bind"
   ]
 
   // Optional Wayland: GUI apps from the container open as windows on the
@@ -45,6 +47,8 @@
   //   "GDK_BACKEND": "wayland",
   //   "QT_QPA_PLATFORM": "wayland",
   //   "MOZ_ENABLE_WAYLAND": "1",
-  //   "ELECTRON_OZONE_PLATFORM_HINT": "wayland"
+  //   "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+  //   // Optional audio, next to the mount above.
+  //   "PULSE_SERVER": "unix:/tmp/pulse-native"
   // }
 }
