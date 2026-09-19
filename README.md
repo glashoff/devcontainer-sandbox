@@ -1,9 +1,39 @@
-# Base dev container
+# Dev container sandbox
 
-One sandbox image for all my projects, built **on this host** every day:
-`local/devcontainer-sandbox`. Every project uses that image and only adds
-project-only tools if needed, so the tools are stored once on disk, not once per
-project. No registry, no GitHub Actions.
+A dev container to let a coding agent work in: it has internet access and write
+access to one project folder, and nothing else from the machine it runs on.
+
+A coding agent runs commands nobody read first, and installs dependencies nobody
+audited. The usual dev container does not contain that: it mounts the host home
+directory, forwards the SSH agent, copies git credentials and can reach every
+device on the local network. This repository builds one that does not.
+
+One image, `local/devcontainer-sandbox`, is built **on the host** and rebuilt
+every day. Every project runs a container from that same image and adds only
+what it alone needs, so the tools take disk space once instead of once per
+project. There is no registry account, no CI, and nothing to push: the image
+never leaves the machine.
+
+## Contents
+
+- [What the sandbox guarantees](#what-the-sandbox-guarantees)
+- [What it does not protect against](#what-it-does-not-protect-against)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Tools in the image](#tools-in-the-image)
+- [How updates work](#how-updates-work)
+- [Host setup in detail](#host-setup-in-detail)
+- [Starting a project](#starting-a-project)
+- [Adding a tool](#adding-a-tool)
+- [Browsers](#browsers)
+- [Wayland](#wayland) · [Audio](#audio) · [GPU](#gpu)
+- [Server access](#server-access)
+- [Rolling back](#rolling-back)
+- [Verify the sandbox](#verify-the-sandbox)
+- [Repository layout](#repository-layout)
+- [Rules when changing it](#rules-when-changing-it)
+- [Scope and contributions](#scope-and-contributions)
+- [License](#license)
 
 ## What the sandbox guarantees
 
@@ -19,11 +49,80 @@ from the host.
 | Host home directory, `~/.ssh`, host `~/.claude` | not mounted (except `~/.claude/CLAUDE.md` and `~/.ssh/devcontainer_ed25519.pub`, read-only) |
 | Host SSH agent | not forwarded (refused by sshd, removed on attach if it gets in anyway) |
 | Host git credentials | not forwarded; containers cannot reach remote repositories |
-| git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup)) |
+| git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup-in-detail)) |
 | `.devcontainer/` of the project | read-only |
-| Project folder (`/workspaces/<name>`) | read-write |
+| Project folder | read-write |
 | Host desktop (Wayland), audio, GPU | not available, unless enabled per project ([Wayland](#wayland), [Audio](#audio), [GPU](#gpu)) |
 | Server via SSH | not available, unless enabled per project ([Server access](#server-access)) |
+
+The firewall, the dropped privileges and the volumes are carried in the image's
+metadata, so they apply to every project automatically — a project cannot forget
+them, it can only be written to punch a hole in them deliberately.
+
+## What it does not protect against
+
+Worth reading before trusting it with anything:
+
+- **The kernel is shared.** A kernel exploit escapes the container. A VM gives
+  stronger isolation; this trades some of that for using the machine's tools,
+  GPU and desktop.
+- **The project folder is writable**, including git hooks, `Makefile`s and
+  scripts that run later **on the host**. Review what comes out of a container
+  before running it outside.
+- **Anything enabled per project widens it.** A Wayland socket allows fake
+  windows and clipboard access, an audio socket allows recording the
+  microphone, a GPU device is a large kernel attack surface, and server access
+  is exactly as dangerous as the user it logs in as. Each of those sections
+  spells out what it costs.
+- **The editor keeps a channel** between its server inside the container and
+  the local UI.
+- **Whatever the agent can reach on the internet**, it can also send data to.
+  The firewall blocks the local network, not exfiltration.
+
+## Requirements
+
+- **Linux with Docker.** Root inside the container is dropped, so rootless
+  Docker is not required, but the host's Docker daemon still runs as root — a
+  hole poked into the container config (see [Rules](#rules-when-changing-it))
+  can therefore be a hole into the host.
+- **Python 3.10 or newer** on the host. The host scripts use nothing else.
+- **systemd user session**, for the daily build timer.
+- **An editor with a Remote SSH extension**, e.g. VSCodium with
+  `jeanp413.open-remote-ssh`. The editor connects to the container over SSH,
+  not through the Dev Containers extension (see
+  [Host setup](#host-setup-in-detail) for why).
+- Optional: a **Wayland desktop** (developed on GNOME) for the window, audio
+  and file-manager integration.
+- A local [devcontainer CLI](https://github.com/devcontainers/cli) is used if
+  present; otherwise the scripts build a small container image with it.
+
+## Quick start
+
+```sh
+git clone <this repository> ~/Projects/base-devcontainer
+cd ~/Projects/base-devcontainer
+python3 host/setup.py
+devcontainer-build-image --full        # first build, takes a while
+```
+
+Then, for a project:
+
+```sh
+mkdir -p ~/Projects/NAME
+cp -r template/.devcontainer ~/Projects/NAME/
+# set "name" in devcontainer.json
+devcontainer-start ~/Projects/NAME
+```
+
+`devcontainer-start` builds nothing by itself: it starts the container from the
+current image, signs a certificate if the project uses [server
+access](#server-access), and opens the editor over SSH. With no argument it
+takes the current directory.
+
+Keep the clone where it is. [setup.py](host/setup.py) links
+`~/.local/share/devcontainer-sandbox` to its `host/` directory rather than
+copying anything, so changes take effect immediately and setup only ever runs
+once.
 
 ## Tools in the image
 
@@ -39,31 +138,8 @@ Per project, in Docker volumes that survive rebuilds: the Claude Code login
 (`claude-code-config-<id>`) and VSCodium's remote server with its extensions
 (`vscodium-server-<id>`).
 
-## Layout
-
-| Path | Purpose |
-|---|---|
-| [image/.devcontainer/](image/.devcontainer/) | the image: [Dockerfile](image/.devcontainer/Dockerfile) (Debian packages), [devcontainer.json](image/.devcontainer/devcontainer.json) (features) |
-| [image/.devcontainer/sandbox/](image/.devcontainer/sandbox/) | the sandbox feature: firewall entrypoint, sshd hardening, sudo removal, agent check, volumes |
-| [image/.devcontainer/playwright-deps/](image/.devcontainer/playwright-deps/) | feature: browser system libraries |
-| [image/refresh.Dockerfile](image/refresh.Dockerfile) | daily update layer |
-| [image/claude-sandbox.md](image/claude-sandbox.md) | what Claude Code in the container knows about the sandbox and its tools; installed as `/etc/claude-code/CLAUDE.md` |
-| [host/setup.py](host/setup.py) | links the scripts, creates the commands and installs the systemd units on this host |
-| [host/setup-ca.py](host/setup-ca.py) | creates the SSH certificate authority and configures a server |
-| [host/config.py](host/config.py), [config.example](host/config.example) | the local configuration in `~/.config/devcontainer-sandbox/config` |
-| [host/build-image.py](host/build-image.py) | builds the image; `devcontainer-build-image` |
-| [host/devcontainer-build-image.timer](host/devcontainer-build-image.timer) | runs the build daily |
-| [host/build-finished.py](host/build-finished.py) | desktop notification and mail when a build finished |
-| [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
-| [host/initialize.py](host/initialize.py) | creates the bind-mount sources on the host (`CLAUDE.md`, SSH key) |
-| [host/devcontainer_cli.py](host/devcontainer_cli.py) | runs the devcontainer CLI (shared by the scripts) |
-| [template/.devcontainer/](template/.devcontainer/) | starting point for a project: `devcontainer.json`, `sandbox.env` |
-
-The sandbox settings (entrypoint, `NET_ADMIN`, `no-new-privileges`, volumes,
-agent check) are stored in the image's metadata and apply to every project
-automatically. What an image cannot carry stays in each project's
-`devcontainer.json`: `runArgs`, `initializeCommand` and the bind mounts from the
-host.
+The list is one person's toolbox, and editing it is expected — see
+[Adding a tool](#adding-a-tool).
 
 ## How updates work
 
@@ -85,29 +161,30 @@ day, so the image stays "base plus one layer" instead of growing a layer per
 day. Tools that must update daily therefore belong in
 [refresh.Dockerfile](image/refresh.Dockerfile), not in a feature.
 
-The timer runs the build daily; if the laptop was off or suspended, it catches
-up afterwards (it never wakes the laptop). `devcontainer-start` then sees the
-new image and recreates the container. Only the project folder and the volumes
-survive, which is where everything of value lives; tools installed by hand
-inside the container are gone. A container that keeps running for days is not
-updated; start it again with `devcontainer-start` now and then.
-`devcontainer-start` warns if the image is older than 48 hours.
+The timer runs the build daily; if the machine was off or suspended, it catches
+up afterwards (it never wakes it). `devcontainer-start` then sees the new image
+and recreates the container. Only the project folder and the volumes survive,
+which is where everything of value lives; tools installed by hand inside the
+container are gone. A container that keeps running for days is not updated;
+start it again with `devcontainer-start` now and then. `devcontainer-start`
+warns if the image is older than 48 hours.
 
-Before each build the current image is tagged `local/devcontainer-sandbox:previous`.
-Old builds are removed afterwards (`docker image prune`).
+Before each build the current image is tagged
+`local/devcontainer-sandbox:previous`. Old builds are removed afterwards
+(`docker image prune`).
 
-The image does not update the project's own dependencies (npm, pip, cargo) in
-the project folder. Security of the host itself (kernel, Docker) comes from the
+The image does not update a project's own dependencies (npm, pip, cargo) in the
+project folder. Security of the host itself (kernel, Docker) comes from the
 host's own updates.
 
-## Host setup
-
-Once per host, in the clone of this repository:
+Checking the daily build:
 
 ```sh
-python3 host/setup.py
-devcontainer-build-image --full        # first build, takes a while
+systemctl --user list-timers devcontainer-build-image.timer
+journalctl --user -u devcontainer-build-image.service
 ```
+
+## Host setup in detail
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start` and
@@ -115,21 +192,32 @@ clone's `host/` directory, creates the `devcontainer-start` and
 units, starts the daily build timer (`--no-timer` to skip that), puts a
 configuration template in `~/.config/devcontainer-sandbox/config` and adds a
 **Dev container** entry to the file manager: right-click a project folder,
-*Open With*, and it starts the container and opens the editor. Started that
-way it runs in a terminal window that stays open if something went wrong. Since
-nothing is copied, changes in `host/` take effect right away and setup.py only
-runs once; the fixed path is what the systemd unit needs.
+*Open With*, and it starts the container and opens the editor. Started that way
+it runs in a terminal window that stays open if something went wrong.
 
-That configuration file holds everything that must not be in a repository: the
-server dev containers may reach, the mail account for failed builds, and the
-git identity for commits made inside a container (see
-[config.example](host/config.example)).
+Changes in `image/` are picked up by the next build
+(`devcontainer-build-image` to build right away).
 
-Committing in a container needs a name and an email address.
-[initialize.py](host/initialize.py) writes one gitconfig per project to
-`~/.config/devcontainer-sandbox/gitconfig-<project>` before every start, and
-the project mounts it read-only as `~/.gitconfig`. Credential helpers are
-never copied — there is nothing to push to from inside a container.
+The features are pinned in a `devcontainer-lock.json` the CLI writes while
+building; a full build deletes it first, which is how features reach their
+newest version. That file is not part of the repository.
+
+### The configuration file
+
+`~/.config/devcontainer-sandbox/config` holds everything that must not be in a
+repository: the server dev containers may reach, the mail account for failed
+builds, and the git identity for commits made inside a container. It is parsed
+as `KEY=VALUE` and never executed; every section is optional, and without it
+that feature simply stays off. See [config.example](host/config.example) for the
+documented list.
+
+### Git identity in the container
+
+Committing needs a name and an email address. [initialize.py](host/initialize.py)
+writes one gitconfig per project to
+`~/.config/devcontainer-sandbox/gitconfig-<project>` before every start, and the
+project mounts it read-only as `~/.gitconfig`. Credential helpers are never
+copied — there is nothing to push to from inside a container.
 
 The identity is taken from the first of these that has one, so a project can
 commit under a different name than the host:
@@ -140,50 +228,26 @@ commit under a different name than the host:
 3. the host's own git identity
 
 One file per project, because a shared one would change the identity under
-another project's running container. With `--server`, setup.py also runs
-[setup-ca.py](host/setup-ca.py), see [Server access](#server-access).
+another project's running container.
 
-The scripts run on the host with your rights, and the image definition next to
-them ends up as root in every container, so **never mount this clone
-read-write into a container**. Copying the scripts somewhere else would not
-help: `devcontainer-build-image` reads `image/` from the clone either way.
-
-The features are pinned in a `devcontainer-lock.json` the CLI writes while
-building; a full build deletes it first, which is how the features reach their
-newest version. The file is not part of the repository.
-
-Changes in `image/` are picked up by the next build
-(`devcontainer-build-image` to build right away).
-
-Checking the daily build:
-
-```sh
-systemctl --user list-timers devcontainer-build-image.timer
-journalctl --user -u devcontainer-build-image.service
-```
+### Mail about failed builds
 
 A failed build shows a notification that stays until it is dismissed, and can
 send a mail with the last journal lines
 ([build-finished.py](host/build-finished.py)). Fill in the `SMTP_` and `MAIL_`
-settings in `~/.config/devcontainer-sandbox/config`, including the password.
-That file is `chmod 600`, and the scripts warn if it is not.
+settings in the configuration file, including the password. That file is
+`chmod 600`, and the scripts warn if it is not.
 
 Use a **send-only** mailbox, never the main mail account: its password sits on
-the laptop, the machine this sandbox exists to protect. Without those settings
-only the notification appears. Testing both paths without waiting for a broken
-build:
+the machine this sandbox exists to protect. Without those settings only the
+notification appears. Testing both paths without waiting for a broken build:
 
 ```sh
 SERVICE_RESULT=success  ~/.local/share/devcontainer-sandbox/build-finished.py
 SERVICE_RESULT=failed   ~/.local/share/devcontainer-sandbox/build-finished.py
 ```
 
-Requirements: Docker (Linux), and an editor with a Remote SSH extension, e.g.
-VSCodium with `jeanp413.open-remote-ssh`. Without a local
-[devcontainer CLI](https://github.com/devcontainers/cli), the scripts build and
-use a container image with it (Linux and Docker only).
-
-Editor settings (`settings.json`):
+### Editor settings
 
 ```json
 "remote.SSH.defaultExtensions": ["anthropic.claude-code"],
@@ -195,25 +259,25 @@ Editor settings (`settings.json`):
 VS Code Dev Containers (instead of SSH) forwards the host SSH agent and there is
 no setting to disable it
 ([microsoft/vscode-remote-release#11413](https://github.com/microsoft/vscode-remote-release/issues/11413)).
-If it is used anyway, VS Code must be started without `SSH_AUTH_SOCK`: a
-wrapper `~/.local/bin/code` that runs `unset SSH_AUTH_SOCK` before starting
-`/usr/share/code/bin/code`, and the `.desktop` launchers in
-`~/.local/share/applications/` with `env -u SSH_AUTH_SOCK` in every `Exec=`
-line. The sandbox removes a forwarded agent on attach and prints a red warning.
+That is why the editor connects over SSH here. If Dev Containers is used anyway,
+VS Code must be started without `SSH_AUTH_SOCK`: a wrapper `~/.local/bin/code`
+that runs `unset SSH_AUTH_SOCK` before starting `/usr/share/code/bin/code`, and
+the `.desktop` launchers in `~/.local/share/applications/` with
+`env -u SSH_AUTH_SOCK` in every `Exec=` line. The sandbox removes a forwarded
+agent on attach and prints a red warning either way.
 
-## New project
+## Starting a project
 
 ```sh
-mkdir -p ~/projects/NAME
-cp -r template/.devcontainer ~/projects/NAME/
+cp -r template/.devcontainer ~/Projects/NAME/
 # set "name"; add project-only tools to "features" if needed;
-# optional: Wayland, GPU (devcontainer.json), server access (sandbox.env)
-devcontainer-start ~/projects/NAME
+# optional: Wayland, audio, GPU (devcontainer.json), server access (sandbox.env)
+devcontainer-start ~/Projects/NAME
 ```
 
-`devcontainer-start` options: `--rebuild` after changing `devcontainer.json`, `--no-open`
-to only start the container, `--editor CMD`, `--yes` to add the `~/.ssh/config`
-entry without asking. The first start asks before adding a
+`devcontainer-start` options: `--rebuild` after changing `devcontainer.json`,
+`--no-open` to only start the container, `--editor CMD`, `--yes` to add the
+`~/.ssh/config` entry without asking. The first start asks before adding a
 `Host devcontainer-<name>-<hash>` block to `~/.ssh/config`.
 
 Each project gets its own container, SSH entry and volumes; they can run side by
@@ -228,8 +292,8 @@ side. Containers have no access to remote repositories.
 A feature can weaken the sandbox for every project: its `capAdd` and
 `securityOpt` end up in the image metadata and are applied to every container.
 The Rust feature, for example, sets `seccomp=unconfined`, which turns off
-Docker's syscall filter; it is installed in the Dockerfile instead. After
-adding a feature, check what it brought along:
+Docker's syscall filter; it is installed in the Dockerfile instead. After adding
+a feature, check what it brought along:
 
 ```sh
 docker image inspect local/devcontainer-sandbox:latest \
@@ -246,9 +310,11 @@ image updates do not reach.
 Then `devcontainer-build-image`; projects get the tool on their next start.
 Adding is safe, removing may break projects that use the tool.
 
-A tool only one project needs does not belong in the shared image. Packages that
-need root to install go into a project image instead, a `Dockerfile` next to the
-project's `devcontainer.json`:
+### A tool only one project needs
+
+It does not belong in the shared image. Packages that need root to install go
+into a project image instead, a `Dockerfile` next to the project's
+`devcontainer.json`:
 
 ```dockerfile
 FROM local/devcontainer-sandbox:latest
@@ -292,8 +358,8 @@ claude mcp add playwright -- npx @playwright/mcp@latest --browser chromium --hea
 Browsers run **headless**; to watch them, enable [Wayland](#wayland) and drop
 `--headless`. The browser is subject to the container firewall (no local
 network). Playwright starts Chromium without Chromium's own sandbox, which
-cannot work under `no-new-privileges`: a malicious page exploiting a browser
-bug lands in the container, still inside the container sandbox.
+cannot work under `no-new-privileges`: a malicious page exploiting a browser bug
+lands in the container, still inside the container sandbox.
 
 ## Wayland
 
@@ -303,7 +369,7 @@ through: no X11, no D-Bus, no GPU (unless [GPU](#gpu) is enabled too).
 
 Enable it in the project's `devcontainer.json` by uncommenting the Wayland mount
 and the `containerEnv` block (see the template), then
-`devcontainer-start --rebuild`. Start it from a terminal in the GNOME session,
+`devcontainer-start --rebuild`. Start it from a terminal in the desktop session,
 so `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` are set. After logging out and in
 again the socket is new: start the container again (suspend and screen lock do
 not matter).
@@ -316,14 +382,14 @@ start (no X11 on purpose).
 What Wayland prevents: reading keystrokes or screen contents of other windows,
 injecting input into them. What remains possible:
 
-- **Fake windows.** A container app can show a window that looks like a
-  KeePassXC unlock dialog; GNOME does not mark where a window comes from. Only
-  type a master password into a dialog you opened yourself.
+- **Fake windows.** A container app can show a window that looks like a password
+  manager's unlock dialog; the desktop does not mark where a window comes from.
+  Only type a master password into a dialog you opened yourself.
 - **Clipboard.** While one of its windows has focus, the container can read the
   clipboard (e.g. a copied password) and replace it (e.g. with a command you
   then paste into a host terminal).
-- **Compositor bugs.** A client exploiting a bug in GNOME Shell would run in the
-  desktop session, outside the container.
+- **Compositor bugs.** A client exploiting a bug in the compositor would run in
+  the desktop session, outside the container.
 
 ## Audio
 
@@ -332,12 +398,12 @@ container plays into the host's sound server. Uncomment the audio mount and
 `PULSE_SERVER` in `devcontainer.json` (see the template), then
 `devcontainer-start --rebuild`.
 
-Passed through is PipeWire's PulseAudio socket
-(`$XDG_RUNTIME_DIR/pulse/native`), not a sound card: the container talks to a
-server that decides what it may do, and it cannot reach ALSA devices or the
-kernel's sound drivers. Programs using libpulse then work as they are; programs
-using ALSA (SDL, Bevy's `bevy_audio`) need ALSA's PulseAudio plugin as their
-default device, which is a project image, not the shared one:
+Passed through is PipeWire's PulseAudio socket (`$XDG_RUNTIME_DIR/pulse/native`),
+not a sound card: the container talks to a server that decides what it may do,
+and it cannot reach ALSA devices or the kernel's sound drivers. Programs using
+libpulse then work as they are; programs using ALSA (SDL, Bevy's `bevy_audio`)
+need ALSA's PulseAudio plugin as their default device, which is a project image,
+not the shared one:
 
 ```dockerfile
 FROM local/devcontainer-sandbox:latest
@@ -354,23 +420,23 @@ played, because the PulseAudio protocol has no way to grant only playback.
 
 ## GPU
 
-Optional per project, e.g. for OpenGL/Vulkan or GPU compute (Intel, AMD;
-NVIDIA needs the NVIDIA container toolkit and is not covered). Uncomment the
-GPU entry in `runArgs` (see the template), then `devcontainer-start --rebuild`.
+Optional per project, e.g. for OpenGL/Vulkan or GPU compute (Intel, AMD; NVIDIA
+needs the NVIDIA container toolkit and is not covered). Uncomment the GPU entry
+in `runArgs` (see the template), then `devcontainer-start --rebuild`.
 
-Access to the device files needs a group the container does not know: the
-host's `render` group exists only by number there. `--group-add` would not help
-either, because it applies to the container's own process, while an SSH login
-rebuilds its group list from `/etc/group` inside the container. So
-`devcontainer-start` reads the group ids from the devices themselves and adds
-the user to them on every start; nothing has to be configured.
+Access to the device files needs a group the container does not know: the host's
+`render` group exists only by number there. `--group-add` would not help either,
+because it applies to the container's own process, while an SSH login rebuilds
+its group list from `/etc/group` inside the container. So `devcontainer-start`
+reads the group ids from the devices themselves and adds the user to them on
+every start; nothing has to be configured.
 
 Check it inside the container with `vulkaninfo --summary`: without the GPU it
 reports `llvmpipe`, with it the real card. `wayland-info` and `eglinfo` are
 there as well.
 
-Without the GPU, OpenGL/Vulkan use software rendering (Mesa llvmpipe). With it, the
-container talks directly to the GPU driver in the host kernel, which is a
+Without the GPU, OpenGL/Vulkan use software rendering (Mesa llvmpipe). With it,
+the container talks directly to the GPU driver in the host kernel, which is a
 larger attack surface: GPU drivers are a common way to escalate privileges.
 
 ## Server access
@@ -404,23 +470,23 @@ SERVER_PRINCIPAL_USERS=gameserver,blog
 (`~/.config/devcontainer-sandbox/ssh-ca/`), copies its public half to the
 server, adds `TrustedUserCAKeys` and `AuthorizedPrincipalsFile` in
 `/etc/ssh/sshd_config.d/`, and reloads sshd after `sshd -t` accepted the
-configuration. For every user it writes a principals file, and creates the
-user first if the server does not have it: `useradd --create-home`, no
-password, no group beyond its own.
+configuration. For every user it writes a principals file, and creates the user
+first if the server does not have it: `useradd --create-home`, no password, no
+group beyond its own.
 
 `root` is accepted, with a warning. It is worth understanding what it costs:
-everything in that container — the agent and every dependency it installs —
-can then take the server over permanently, since root can leave a key of its
-own behind and the 24-hour expiry does nothing against that. The laptop stays
+everything in that container — the agent and every dependency it installs — can
+then take the server over permanently, since root can leave a key of its own
+behind and the 24-hour expiry does nothing against that. The workstation stays
 protected, the server does not. Grant it only to a project whose job is
 provisioning that server, and prefer a disposable server for testing.
 
 A new project therefore means one more user: add it to the list and run
 setup-ca.py again. Users that are already there stay as they are — an existing
 account is never modified, only its principals file is written again with the
-same content. Whatever rights that user needs for its job — a deploy
-directory, one `sudo` rule — you grant on the server; this script only creates
-a plain user and lets it log in.
+same content. Whatever rights that user needs for its job — a deploy directory,
+one `sudo` rule — you grant on the server; this script only creates a plain user
+and lets it log in.
 
 **The script only ever adds.** Removing a user from `SERVER_PRINCIPAL_USERS`
 does not take its access away: the principals file stays on the server and its
@@ -432,8 +498,8 @@ ssh root@server.example.org 'rm /etc/ssh/devcontainer_principals/blog'
 ```
 
 The account and its files stay; only the certificate login is gone. That
-asymmetry is deliberate: a script for dev containers should not delete things
-on a server by itself.
+asymmetry is deliberate: a script for dev containers should not delete things on
+a server by itself.
 
 The CA key can create certificates for every user a server accepts it for, so
 protect it like your own SSH key. It has no passphrase because
@@ -456,9 +522,9 @@ SERVER_SSH_PORT=22
 SERVER_SSH_ALIAS=server
 ```
 
-The host must have connected to the server once, since the server's host key
-is copied from the host's `~/.ssh/known_hosts` into the container (strict
-checking there). Inside the container: `ssh server`.
+The host must have connected to the server once, since the server's host key is
+copied from the host's `~/.ssh/known_hosts` into the container (strict checking
+there). Inside the container: `ssh server`.
 
 `devcontainer-start` prints how long the certificate is valid. After 24 hours
 run `devcontainer-start` again; it replaces key and certificate even if the
@@ -471,7 +537,7 @@ If a build breaks something, point the project at the previous build,
 `"image": "local/devcontainer-sandbox:previous"`, and switch back to `latest`
 once it is fixed. `previous` is overwritten by the next build.
 
-## Verify
+## Verify the sandbox
 
 The attach output shows `sandbox: no host SSH agent forwarded`. In a container
 terminal:
@@ -486,25 +552,58 @@ git config --global --list                          # no host config
 echo $DISPLAY                                       # empty (no X11)
 ```
 
-## Rules and limitations
+## Repository layout
+
+| Path | Purpose |
+|---|---|
+| [image/.devcontainer/](image/.devcontainer/) | the image: [Dockerfile](image/.devcontainer/Dockerfile) (Debian packages), [devcontainer.json](image/.devcontainer/devcontainer.json) (features) |
+| [image/.devcontainer/sandbox/](image/.devcontainer/sandbox/) | the sandbox feature: firewall entrypoint, sshd hardening, sudo removal, agent check, volumes |
+| [image/.devcontainer/playwright-deps/](image/.devcontainer/playwright-deps/) | feature: browser system libraries |
+| [image/refresh.Dockerfile](image/refresh.Dockerfile) | daily update layer |
+| [image/claude-sandbox.md](image/claude-sandbox.md) | what Claude Code in the container knows about the sandbox and its tools; installed as `/etc/claude-code/CLAUDE.md` |
+| [host/setup.py](host/setup.py) | links the scripts, creates the commands and installs the systemd units on this host |
+| [host/setup-ca.py](host/setup-ca.py) | creates the SSH certificate authority and configures a server |
+| [host/config.py](host/config.py), [config.example](host/config.example) | the local configuration in `~/.config/devcontainer-sandbox/config` |
+| [host/build-image.py](host/build-image.py) | builds the image; `devcontainer-build-image` |
+| [host/devcontainer-build-image.timer](host/devcontainer-build-image.timer) | runs the build daily |
+| [host/build-finished.py](host/build-finished.py) | desktop notification and mail when a build finished |
+| [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
+| [host/initialize.py](host/initialize.py) | creates the bind-mount sources on the host (`CLAUDE.md`, SSH key) |
+| [host/devcontainer_cli.py](host/devcontainer_cli.py) | runs the devcontainer CLI (shared by the scripts) |
+| [template/.devcontainer/](template/.devcontainer/) | starting point for a project: `devcontainer.json`, `sandbox.env` |
+
+The sandbox settings (entrypoint, `NET_ADMIN`, `no-new-privileges`, volumes,
+agent check) live in the image's metadata and apply to every project
+automatically. What an image cannot carry stays in each project's
+`devcontainer.json`: `runArgs`, `initializeCommand` and the bind mounts from the
+host.
+
+## Rules when changing it
 
 - Never add a feature, mount or `runArgs` entry that gives access to Docker
-  (`docker-in-docker`, `docker-outside-of-docker`, `/var/run/docker.sock`) or
-  to the X11 display (`/tmp/.X11-unix`, `DISPLAY`): the first is root on the
-  host, the second lets the container read every keystroke on the desktop.
+  (`docker-in-docker`, `docker-outside-of-docker`, `/var/run/docker.sock`) or to
+  the X11 display (`/tmp/.X11-unix`, `DISPLAY`): the first is root on the host,
+  the second lets the container read every keystroke on the desktop.
 - Review every change to a project's `.devcontainer/` before rebuilding; it
   defines the sandbox and is only read-only from inside.
 - Never mount the clone of this repository read-write into a container: its
-  scripts run on the host, and its image definition runs as root at build time.
-- The container shares the host kernel. A kernel exploit could escape it; a VM
-  gives stronger isolation.
-- Files in the project folder (e.g. git hooks, scripts) can be modified from
-  inside. Review them before running anything on the host.
-- The editor keeps a communication channel between its server in the container
-  and the local UI.
+  scripts run on the host with your rights, and its image definition runs as
+  root at build time. Copying the scripts elsewhere would not help —
+  `devcontainer-build-image` reads `image/` from the clone either way.
 - `~/.claude/CLAUDE.md` is bind-mounted as a file. If an editor saves it by
   replacing the file (new inode), the container keeps seeing the old version
   until it is restarted.
+
+## Scope and contributions
+
+This is a personal setup, published because the pieces were worth writing down,
+not as a product. It assumes Linux, Docker, a Debian-based image, systemd and —
+for the optional desktop parts — a Wayland session, and it was built and tested
+on one laptop. There is no test suite, no compatibility promise and no support.
+
+Fork it, take the parts you like. Issues and pull requests are welcome but may
+sit for a while; anything that widens what a container can reach is unlikely to
+be merged.
 
 ## License
 
