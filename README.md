@@ -48,7 +48,7 @@ from the host.
 | `sudo` / becoming root | blocked |
 | Host home directory, `~/.ssh`, host `~/.claude` | not mounted (except `~/.claude/CLAUDE.md` and `~/.ssh/devcontainer_ed25519.pub`, read-only) |
 | Host SSH agent | not forwarded (refused by sshd, removed on attach if it gets in anyway) |
-| Host git credentials | not forwarded; containers cannot reach remote repositories |
+| Host git credentials | not forwarded; containers can fetch public GitHub repositories, but not push or reach private ones |
 | git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup-in-detail)) |
 | `.devcontainer/` of the project | read-only |
 | Project folder | read-write |
@@ -217,7 +217,14 @@ Committing needs a name and an email address. [initialize.py](host/initialize.py
 writes one gitconfig per project to
 `~/.config/devcontainer-sandbox/gitconfig-<project>` before every start, and the
 project mounts it read-only as `~/.gitconfig`. Credential helpers are never
-copied — there is nothing to push to from inside a container.
+copied: pushing and private repositories stay a job for the host.
+
+Public GitHub repositories can be fetched and pulled inside the container.
+HTTPS needs no credentials for them, but SSH needs a key even there, so the
+gitconfig rewrites `git@github.com:` and `ssh://git@github.com/` to
+`https://github.com/`. The project's `.git/config` is shared with the host and
+keeps its SSH remote; only the container sees the rewrite. A `git push` from
+the container fails for lack of credentials.
 
 The identity is taken from the first of these that has one, so a project can
 commit under a different name than the host:
@@ -281,7 +288,7 @@ devcontainer-start ~/Projects/NAME
 `Host devcontainer-<name>-<hash>` block to `~/.ssh/config`.
 
 Each project gets its own container, SSH entry and volumes; they can run side by
-side. Containers have no access to remote repositories.
+side. Containers can fetch public GitHub repositories, nothing else.
 
 ## Adding a tool
 

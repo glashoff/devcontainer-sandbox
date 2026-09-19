@@ -52,9 +52,14 @@ def project_settings() -> dict[str, str]:
     return settings
 
 
-# Just enough git configuration to commit inside the container. Credential
-# helpers are never taken along: containers have no access to remote
-# repositories, and pushing stays a job for the host.
+# Just enough git configuration to commit inside the container, and to fetch
+# public GitHub repositories. Credential helpers are never taken along:
+# pushing and private repositories stay a job for the host.
+#
+# SSH needs a key even for a public repository, so GitHub remotes written as
+# git@github.com:... are fetched over HTTPS instead, which needs none. The
+# rewrite lives only in this file; the project's .git/config is shared with
+# the host and stays as it is.
 #
 # The name and email come from the project's sandbox.env, else from the local
 # configuration, else from this host's git identity. One file per project, so
@@ -68,8 +73,11 @@ email = (settings.get("GIT_USER_EMAIL") or host_settings.get("GIT_USER_EMAIL")
          or git_identity("user.email"))
 
 lines = ["# Written by the host (initialize.py of devcontainer-sandbox) and",
-         "# mounted read-only. Identity only, no credentials.",
-         "[init]", "\tdefaultBranch = main"]
+         "# mounted read-only. No credentials.",
+         "[init]", "\tdefaultBranch = main",
+         '[url "https://github.com/"]',
+         "\tinsteadOf = git@github.com:",
+         "\tinsteadOf = ssh://git@github.com/"]
 if name and email:
     lines += ["[user]", f"\tname = {name}", f"\temail = {email}"]
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
