@@ -36,6 +36,9 @@ CONTAINER_SSH_PORT = "2222"
 # Reading the model list costs nothing; only the authentication is of
 # interest, to tell a mistyped or truncated token from a working one.
 CLAUDE_MODELS_URL = "https://api.anthropic.com/v1/models"
+# Where tokens are listed and revoked. They carry no name there, only the
+# time they were created, which is why that time is printed here.
+CLAUDE_TOKEN_PAGE = "https://claude.ai/settings/claude-code"
 # A token is around 110 characters. Anything far below that is a copy that
 # lost its end, which is what a wrapped terminal line does to one.
 TOKEN_MIN_LENGTH = 60
@@ -308,8 +311,10 @@ def mint_claude_token(workspace):
         die('No claude on the host to create a token with, see README '
             '"Claude Code\'s login"')
     if token_file.is_file():
-        print(f"{token_file} already holds a token for this project. A new one "
-              "does not revoke it; that is a job for the web console.")
+        print(f"{token_file} already holds a token for this project, created "
+              f"{datetime.fromtimestamp(token_file.stat().st_mtime):%Y-%m-%d %H:%M}. "
+              f"A new one does not revoke it; that is done at {CLAUDE_TOKEN_PAGE}, "
+              "where the time is what tells them apart.")
         if input("Create another one and use that? [y/N] ").strip().lower() \
                 not in ("y", "yes"):
             return
@@ -331,7 +336,9 @@ def mint_claude_token(workspace):
     TOKEN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     token_file.write_text(token + "\n")
     token_file.chmod(0o600)
-    print(f"Written to {token_file}")
+    print(f"Written to {token_file}. It is listed as of now "
+          f"({datetime.now():%Y-%m-%d %H:%M}) at {CLAUDE_TOKEN_PAGE}, which is "
+          "also where it is revoked; the tokens carry no names there.")
 
 
 def install_claude_token(workspace, container_id, remote_user):

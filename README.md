@@ -808,11 +808,15 @@ sign in with. Deleting the file is safe if you would rather not have the
 address in the container; Claude Code writes it again.
 
 Two things to know before relying on it. The token is valid for **one year**,
-and there is no way to revoke it from the command line
-([#48373](https://github.com/anthropics/claude-code/issues/48373)); a
-compromised project means revoking that one token in the web console. And the
-file is named after the project folder, so two projects with the same folder
-name in different places share a token.
+and there is no way to revoke it, or even list it, from the command line
+([#48373](https://github.com/anthropics/claude-code/issues/48373)). Tokens are
+listed and revoked at
+[claude.ai/settings/claude-code](https://claude.ai/settings/claude-code), and
+they carry **no name** there — nothing says which project a token belongs to,
+only when it was created. `--claude-token` therefore prints that time, and the
+token file keeps it as its timestamp. And the file is named after the project
+folder, so two projects with the same folder name in different places share a
+token.
 
 ## Rolling back
 
