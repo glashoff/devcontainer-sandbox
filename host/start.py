@@ -156,6 +156,10 @@ def ensure_deploy_key(workspace, settings):
     if mismatch:
         print(f"Warning: {mismatch}. Changed from inside the container?",
               file=sys.stderr)
+    elif not recorded_origin(workspace):
+        print(f"Note: the project has no origin in .git/config, so "
+              f"{REMOTE_SETTING} in sandbox.env is the only thing that names "
+              "its repository.")
     repo = deploy_repo(settings)
     if not repo:
         return
@@ -188,8 +192,14 @@ def ensure_deploy_key(workspace, settings):
         title = f"devcontainer-sandbox: {workspace.name} on {socket.gethostname()}"
         if gh("api", "-X", "POST", f"repos/{repo}/keys", "-f", f"title={title}",
               "-f", f"key={public}", "-F", "read_only=true") is None:
-            print(f"Warning: cannot add a deploy key to {repo} (it needs admin "
-                  f"rights on the repository); {hint}", file=sys.stderr)
+            # Telling the two apart matters: one is a typo in sandbox.env,
+            # the other is a repository somebody else owns.
+            missing = gh("api", f"repos/{repo}", "--jq", ".full_name") is None
+            why = ("no repository of that name is visible to your gh account "
+                   f"- check {REMOTE_SETTING} in sandbox.env" if missing else
+                   "it needs admin rights on the repository")
+            print(f"Warning: cannot add a deploy key to {repo}: {why}; {hint}",
+                  file=sys.stderr)
             return
         if source == new_key:
             KEY_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)

@@ -31,6 +31,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import STATE_DIR  # noqa: E402
 from devcontainer_cli import die, load_jsonc  # noqa: E402
 
+_warned: set = set()
+
+
+def warn_once(message: str) -> None:
+    """Says it once per run: these paths are looked at more than once."""
+    if message not in _warned:
+        _warned.add(message)
+        print(f"Warning: {message}", file=sys.stderr)
+
+
 DRAFT_DIR = "protected_draft"
 # How a draft asks for something to be removed. Absence never means deletion:
 # a draft that lost a file through a mishap would otherwise propose throwing
@@ -63,22 +73,25 @@ def target_of(mount) -> str:
 
 
 def relative_path(source: str, prefix: str) -> str | None:
-    """The path a mount names below prefix, as clean components, or None.
+    """The path a mount names below prefix, plainly written, or None.
 
-    Nothing that leaves the folder is accepted: "..", an absolute rest and
-    the folder itself are refused outright rather than skipped, because each
-    of them is a claim of protection that cannot be kept, and a claim nobody
-    checked is worse than no claim.
+    None is not a complaint. A read-only mount of a neighbouring project
+    (${localWorkspaceFolder}/../other) is an ordinary thing to want, it is
+    simply not one of this project's protected paths, and nothing here writes
+    to it. Only a path that means to be inside and is written in a way nobody
+    can check at a glance is worth saying something about.
     """
     if not source.startswith(prefix):
         return None
     rest = source[len(prefix):]
     parts = [part for part in rest.split("/") if part not in ("", ".")]
-    if not parts or ".." in parts or rest != "/".join(parts):
-        die(f"Mount of {source} in devcontainer.json: write a protected path "
-            "plainly, as name or name/inside - no \"..\", no \".\", no "
-            "doubled or trailing slashes, and not the project folder itself. "
-            "What cannot be read at a glance cannot be checked either.")
+    if not parts or ".." in parts:
+        return None            # the folder itself, or somewhere outside it
+    if rest != "/".join(parts):
+        warn_once(f"mount of {source} in devcontainer.json is not counted as "
+                  "a protected path: write it plainly, as name or name/inside,"
+                  " without doubled or trailing slashes")
+        return None
     return "/".join(parts)
 
 

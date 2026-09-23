@@ -81,10 +81,10 @@ def recorded_origin(workspace: Path) -> str | None:
 def origin_mismatch(workspace: Path, remote: str) -> str | None:
     """A warning if .git/config names another repository than sandbox.env."""
     origin = recorded_origin(workspace)
-    if origin == remote:
-        return None
+    if origin == remote or origin is None:
+        return None   # nothing recorded to compare with; not a disagreement
     repo = github_repo(origin)
     if repo and repo.lower() == (github_repo(remote) or "").lower():
         return None  # the same GitHub repository, written another way
-    return (f"origin in .git/config is {origin or '(none)'}, but "
+    return (f"origin in .git/config is {origin}, but "
             f"{REMOTE_SETTING} in .devcontainer/sandbox.env is {remote}")

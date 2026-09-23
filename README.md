@@ -851,14 +851,15 @@ does:
 - `<path>` written plainly: `name` or `name/inside`, no `..`, no `.`, no
   doubled or trailing slashes, and not the project folder itself
 
-The first three are what makes the claim true. A read-only mount that lands
-somewhere else in the container leaves the file in the project writable
-there, so calling it protected would be a lie; such a mount is simply not
-part of this. A source pointing out of the project, `../../.ssh`, would have
-`devcontainer-approve` write outside the project — so that one is not
-ignored but refused, and `devcontainer-start` stops with it. The last rule
-exists because a path nobody can read at a glance is one nobody checks
-either.
+Anything else is an ordinary read-only mount and no concern of this: a
+neighbouring project brought in as `${localWorkspaceFolder}/../other`, a
+certificate mounted to `/etc/ssl/`, a file that lands somewhere else in the
+container. None of them is a protected path, none of them is an error, and
+nothing here ever writes to them. The rules are what makes the claim true
+where it is made: a mount landing elsewhere leaves the file in the project
+writable, and a source outside the project is not the project's to protect.
+Only a path that means to be inside and is written so nobody can check it at
+a glance is worth a word, and `devcontainer-start` says it once.
 
 Inside the container these are read-only for real: writing, creating,
 deleting, renaming the mount point and unmounting are all refused, and
