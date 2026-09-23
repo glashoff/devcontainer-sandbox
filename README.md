@@ -836,10 +836,22 @@ mounts each of them read-only, at its own path, in
 ]
 ```
 
+The mount **is** the marking: there is no second list to keep in step, and
+what counts is what actually holds in the container. Read-only mounts of the
+project's own folder (`${localWorkspaceFolder}/...`) are the protected paths,
+nothing else; give them the same path inside, so the file stays where the
+project expects it. `.devcontainer/` is one of them in the template already.
+After adding one, recreate the container: `devcontainer-start --rebuild`.
+
 Inside the container these are read-only for real: writing, creating,
 deleting, renaming the mount point and unmounting are all refused, and
-`.devcontainer/` cannot change the list, since it is read-only itself. The
-list lives nowhere else — the mounts *are* the list.
+`.devcontainer/` cannot change the list, since it is read-only itself.
+
+The file has to exist before the container is created. A bind mount whose
+source is missing does not fail — Docker creates it, as a directory owned by
+root, under the name the file should have had; removing that then takes
+`sudo`. `devcontainer-start` refuses to start in that case and says which
+path is missing.
 
 **The container proposes instead of changing.** `protected_draft/` in the
 project holds those proposals, at the same path as the file they are for:

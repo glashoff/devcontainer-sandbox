@@ -78,6 +78,17 @@ def protected_paths(workspace: Path) -> list[str]:
     return sorted(dict.fromkeys(paths))
 
 
+def missing_paths(workspace: Path) -> list[str]:
+    """Protected paths that do not exist on the host.
+
+    Docker creates a missing bind source by itself, as a directory owned by
+    root - so a mount for a file that is not there yet leaves a directory
+    with the file's name, which takes root to remove again.
+    """
+    return [relative for relative in protected_paths(workspace)
+            if not (workspace / relative).exists()]
+
+
 def state_file(workspace: Path) -> Path:
     """Named like the other per-project state (start.py)."""
     name = re.sub(r"[^A-Za-z0-9_-]", "-", workspace.name)

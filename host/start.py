@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import STATE_DIR, TOKEN_DIR  # noqa: E402
 from devcontainer_cli import (DOCKER, Cli, die,  # noqa: E402
                               docker_value, load_jsonc)
-from protected import update_base  # noqa: E402
+from protected import missing_paths, update_base  # noqa: E402
 from deploy_key import (CONTAINER_KEY, CONTAINER_KNOWN_HOSTS,  # noqa: E402
                         KEY_DIR, deploy_repo, key_file)
 from remote import (REMOTE_SETTING, github_repo, origin_mismatch,  # noqa: E402
@@ -525,6 +525,16 @@ def main():
 
     settings = read_settings(sandbox_env(workspace))
     ensure_deploy_key(workspace, settings)
+
+    # A read-only mount whose source is missing would not fail: Docker
+    # creates it as a directory owned by root, under the name of the file
+    # that should have been there (README "Protected files").
+    missing = missing_paths(workspace)
+    if missing:
+        die("Protected paths named in devcontainer.json but not in the "
+            f"project: {', '.join(missing)}. Create them first, or take the "
+            "mount out; starting now would leave a directory owned by root "
+            "in their place.")
 
     # What the protected files say now is what a proposal will be measured
     # against, unless one is already open for them (README "Protected files").
