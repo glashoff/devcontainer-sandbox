@@ -2,8 +2,8 @@
 """Sets this host up for the dev container sandbox (README "Host setup").
 
 Links ~/.local/share/devcontainer-sandbox to this repository's host/ directory,
-creates the devcontainer-start and devcontainer-build-image commands, installs
-the systemd units and starts the daily build timer.
+creates the devcontainer-start, devcontainer-build-image and devcontainer-push
+commands, installs the systemd units and starts the daily build timer.
 
 Run it once, from the clone. Changes in host/ take effect immediately
 afterwards, since nothing is copied.
@@ -27,7 +27,8 @@ APPLICATIONS_DIR = Path.home() / ".local/share/applications"
 
 UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer"]
 COMMANDS = {"devcontainer-start": "start.py",
-            "devcontainer-build-image": "build-image.py"}
+            "devcontainer-build-image": "build-image.py",
+            "devcontainer-push": "push.py"}
 TIMER = "devcontainer-build-image.timer"
 # Files an earlier version of setup.py copied into DEST instead of linking it.
 COPIED_BY_OLD_SETUP = ["start.py", "build-image.py", "initialize.py",

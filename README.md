@@ -30,6 +30,7 @@ never leaves the machine.
 - [Wayland](#wayland) · [Audio](#audio) · [GPU](#gpu)
 - [Server access](#server-access)
 - [Fetching from GitHub](#fetching-from-github)
+- [Pushing from the host](#pushing-from-the-host)
 - [Rolling back](#rolling-back)
 - [Verify the sandbox](#verify-the-sandbox)
 - [Repository layout](#repository-layout)
@@ -70,8 +71,10 @@ Worth reading before trusting it with anything:
   GPU and desktop.
 - **The project folder is writable**, including git hooks, `Makefile`s and
   scripts that run later **on the host**. Review what comes out of a container
-  before running it outside. A `git push` on the host runs the hooks and the
-  `.git/config` of the project, so the same applies to pushing.
+  before running it outside, and push with `devcontainer-push`, which runs
+  nothing from the project ([Pushing from the host](#pushing-from-the-host)):
+  a plain `git push` on the host runs the hooks and the `.git/config` of the
+  project.
 - **Anything enabled per project widens it.** A Wayland socket allows fake
   windows and clipboard access, an audio socket allows recording the
   microphone, a GPU device is a large kernel attack surface, and server access
@@ -218,8 +221,8 @@ journalctl --user -u devcontainer-build-image.service
 ## Host setup in detail
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
-clone's `host/` directory, creates the `devcontainer-start` and
-`devcontainer-build-image` commands in `~/.local/bin`, installs the systemd
+clone's `host/` directory, creates the `devcontainer-start`,
+`devcontainer-build-image` and `devcontainer-push` commands in `~/.local/bin`, installs the systemd
 units, starts the daily build timer (`--no-timer` to skip that), puts a
 configuration template in `~/.config/devcontainer-sandbox/config` and adds a
 **Dev container** entry to the file manager: right-click a project folder,
@@ -665,6 +668,64 @@ and `ssh://git@github.com/` to `https://github.com/`, except for the project's
 own repository. The project's `.git/config` is shared with the host and stays as
 it is; only the container sees the rewrite.
 
+## Pushing from the host
+
+Containers cannot push — their deploy key is read-only — so the host does. A plain `git push` in the project is
+the wrong tool for that, because the project's `.git/` is writable from inside
+the container: hooks, `core.hooksPath`, `core.sshCommand`, `credential.helper`
+or a push refspec with `+` in `.git/config` would all run on the host.
+
+```sh
+devcontainer-push ~/Projects/NAME     # or, in the project: devcontainer-push
+```
+
+[push.py](host/push.py) never runs git inside the project. It fetches the
+checked-out branch into a repository of its own
+(`~/.local/state/devcontainer-sandbox/push/<project>-<hash>.git`); only git's
+`upload-pack` reads the project, the same way it would serve a clone. It then
+shows the commits and changed files, asks, and pushes exactly the commit it
+showed, without `--force`:
+
+- if the remote branch is where the project's history already has it, the push
+  is a fast-forward and goes through;
+- if the remote has commits the project does not have, it stops. Fetch and
+  merge in the project first (inside the container works), then push again. It
+  never merges by itself and never overwrites history.
+
+Before asking, it warns about what a container might slip in:
+
+- CI configuration (`.github/workflows/`, `.gitlab-ci.yml`), which runs on the
+  remote with the repository's secrets
+- files that look like credentials (`.env`, `*.pem`, `id_ed25519`, ...)
+- new executables, new symbolic links, submodules, `.gitmodules` and
+  `.gitattributes`
+- files of 50 MB or more (GitHub refuses 100 MB)
+- commits whose author or committer is neither the project's identity nor the
+  host's. This only catches carelessness: the container knows your identity
+  and can commit under it
+- changes to `.devcontainer/`: read-only in the container, but a commit can
+  still change it, and a later checkout on the host would make that real
+- a separate history: a commit without parents, as another repository brings
+  along, whether it replaces a new branch or is merged in with
+  `--allow-unrelated-histories` (replacing an existing branch is refused
+  anyway, since it is no fast-forward)
+
+With warnings, `--yes` does not push. It only looks at names, modes and sizes,
+not at contents: it is no secret scanner. For a new branch it compares against
+the remote's default branch. Projects that use **Git LFS** are refused, since
+LFS uploads its files from a pre-push hook, which this command does not run.
+
+It pushes to `GIT_REMOTE_URL` from `.devcontainer/sandbox.env`
+([Fetching from GitHub](#fetching-from-github)), never to what `.git/config`
+says; if the two differ, that is a warning. Without the setting it shows
+`origin` from `.git/config`, asks, and writes it to `sandbox.env`; commit that
+file with the project. Options: `--branch NAME` pushes another branch, `--yes`
+skips the questions.
+
+Push rules on the remote (GitHub rulesets or GitLab protected branches that
+block force pushes and deletions) protect the history from everything else.
+
+
 ## Rolling back
 
 If a build breaks something, point the project at the previous build,
@@ -704,6 +765,7 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
 | [host/deploy_key.py](host/deploy_key.py) | the read-only GitHub deploy key of a project |
 | [host/remote.py](host/remote.py) | the repository a project belongs to (`GIT_REMOTE_URL`), and its comparison with `.git/config` |
+| [host/push.py](host/push.py) | pushes a project's branch from the host, fast-forward only, after showing what it contains; `devcontainer-push` |
 | [host/initialize.py](host/initialize.py) | creates the bind-mount sources on the host (`CLAUDE.md`, SSH key) |
 | [host/devcontainer_cli.py](host/devcontainer_cli.py) | runs the devcontainer CLI (shared by the scripts) |
 | [template/.devcontainer/](template/.devcontainer/) | starting point for a project: `devcontainer.json`, `sandbox.env` |
