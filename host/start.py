@@ -248,6 +248,40 @@ def install_deploy_key(workspace, settings, container_id, remote_user):
                  f"umask 077 && cat > {CONTAINER_KNOWN_HOSTS}", stdin=known)
 
 
+def mint_claude_token(workspace):
+    """Creates this project's Claude Code token with "claude setup-token".
+
+    That command is a browser flow in a full-screen terminal interface, and it
+    prints nothing at all when its output is redirected, so a script cannot
+    capture the token: it is read off the screen and pasted back here. What is
+    left to do here is what goes wrong by hand — the file name, the
+    permissions (a shell redirect leaves the token world-readable), and not
+    quietly replacing a token that is still valid.
+    """
+    token_file = TOKEN_DIR / workspace.name
+    if not sys.stdin.isatty():
+        die("--claude-token asks questions, so it needs a terminal")
+    if not shutil.which("claude"):
+        die('No claude on the host to create a token with, see README '
+            '"Claude Code\'s login"')
+    if token_file.is_file():
+        print(f"{token_file} already holds a token for this project. A new one "
+              "does not revoke it; that is a job for the web console.")
+        if input("Create another one and use that? [y/N] ").strip().lower() \
+                not in ("y", "yes"):
+            return
+    print("\nclaude setup-token opens a browser and prints the token at the end.")
+    subprocess.run(["claude", "setup-token"])
+    token = input("\nPaste the token here: ").strip()
+    # Long, and a single word: it goes into JSON and into the environment.
+    if not re.fullmatch(r"\S{20,}", token):
+        die("That does not look like a token, nothing was written")
+    TOKEN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    token_file.write_text(token + "\n")
+    token_file.chmod(0o600)
+    print(f"Written to {token_file}")
+
+
 def install_claude_token(workspace, container_id, remote_user):
     """Gives the container the project's own Claude Code token, if it has one.
 
@@ -433,6 +467,9 @@ def main():
                         help="editor command (default: $DEVCONTAINER_EDITOR, codium or code)")
     parser.add_argument("--yes", action="store_true",
                         help="add the SSH host entry to ~/.ssh/config without asking")
+    parser.add_argument("--claude-token", action="store_true",
+                        help="create this project's Claude Code token first "
+                             "(claude setup-token), then start as usual")
     parser.add_argument("--pause-on-error", action="store_true",
                         help="wait for a key press when something went wrong; "
                              "for the file manager entry, whose window would "
@@ -446,6 +483,9 @@ def main():
     config_file = workspace / ".devcontainer/devcontainer.json"
     if not config_file.is_file():
         die(f"No .devcontainer/devcontainer.json in {workspace}")
+
+    if args.claude_token:
+        mint_claude_token(workspace)
 
     cli = Cli(workspace)
     editor = find_editor(args.editor) if args.open else None

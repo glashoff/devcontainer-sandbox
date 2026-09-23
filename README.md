@@ -751,16 +751,29 @@ A token from `claude setup-token` is the smaller credential for this. It
 so it reaches neither Remote Control nor your claude.ai connectors, and it can
 be issued more than once — one per project.
 
-On the host, in the clone or anywhere else:
+On the host:
+
+```sh
+devcontainer-start --claude-token ~/Projects/NAME
+```
+
+This runs `claude setup-token` for you and writes what you paste back to
+`~/.config/devcontainer-sandbox/claude-tokens/NAME`, with mode 600, before it
+starts the container as usual. The manual way is the same thing:
 
 ```sh
 claude setup-token                      # prints the token, saves it nowhere
 $EDITOR ~/.config/devcontainer-sandbox/claude-tokens/NAME
 ```
 
-`NAME` is the project folder's name, as with the gitconfig. On the next
-`devcontainer-start` the token is written into `~/.claude/settings.json` of
-that container:
+`NAME` is the project folder's name, as with the gitconfig. Minting cannot be
+automated further: `claude setup-token` is a browser flow in a full-screen
+terminal interface and prints nothing when its output is redirected, so the
+token can only be read off the screen. A second token does not revoke the
+first, which is why `--claude-token` asks before replacing one.
+
+On the next `devcontainer-start` the token is written into
+`~/.claude/settings.json` of that container:
 
 ```json
 { "env": { "CLAUDE_CODE_OAUTH_TOKEN": "..." } }
