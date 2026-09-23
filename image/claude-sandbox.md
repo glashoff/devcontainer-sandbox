@@ -64,8 +64,10 @@ defaults against them. Do not switch them off on your own; ask the user.
 Some of a project's files are mounted read-only: writing to them fails, and
 that is deliberate, not a broken permission. Do not work around it.
 
-- Propose the change instead: the same path under `protected_draft/`, for
-  example `protected_draft/Makefile`. Edit the copy that is already there.
+- Propose the change instead: copy the file to the same path under
+  `protected_draft/` (`protected_draft/Makefile`) and edit it there. That
+  directory is empty until you put something in it; it holds proposals, not
+  copies of everything.
 - To remove a file or a directory, create a marker beside where it sits in
   the draft: `protected_draft/protected/old.md.delete` removes
   `protected/old.md`, and `protected_draft/protected/legacy.delete` removes

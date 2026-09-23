@@ -841,17 +841,21 @@ deleting, renaming the mount point and unmounting are all refused, and
 `.devcontainer/` cannot change the list, since it is read-only itself. The
 list lives nowhere else — the mounts *are* the list.
 
-**The container proposes instead of changing.** Next to the project it has
-`protected_draft/`, writable, holding a copy of each protected path at the
-same place: `protected_draft/Makefile`,
-`protected_draft/.devcontainer/devcontainer.json`. It edits the copy. On every
-`devcontainer-start` the host writes the draft files nobody edited again from
-the protected ones, file by file, so the container works from what the host
-has now; a draft file it has changed is left alone.
+**The container proposes instead of changing.** `protected_draft/` in the
+project holds those proposals, at the same path as the file they are for:
+`protected_draft/Makefile`, `protected_draft/.devcontainer/devcontainer.json`.
+It is an ordinary directory in the project folder, which is writable anyway —
+no mount, nothing special about it. The container copies a file into it when
+it wants to change one, and edits it there.
 
-**A draft never replaces a directory as a whole**, at any depth. A file
-missing from the draft proposes nothing — deleting a draft file is how a
-proposal is withdrawn, and the file is written again on the next start.
+**It holds proposals and nothing else.** It is never filled with copies of
+the protected files: what lies in it is what you are being asked to accept,
+and a directory of unchanged copies would bury that. Once something has been
+applied it is emptied again, apart from the `.gitignore`.
+
+**A draft never replaces a directory as a whole**, at any depth. A file that
+is not in the draft proposes nothing, so deleting a draft file is how a
+proposal is withdrawn, and the protected file simply stays as it is.
 Removing something is a separate, visible act: a marker named after it,
 beside where it sits in the draft.
 
@@ -883,17 +887,15 @@ under `.devcontainer/`, naming the keys it found (`privileged`, `runArgs`,
 link is refused rather than copied, so a link out of the tree cannot make the
 host write elsewhere.
 
-Once something has been applied, the draft starts over from the files as
-they now are: nothing in it is pending any more, and leaving the copies
-there would propose all of them a second time.
-
 **When both sides changed** the same file — you on the host, the container in
 its draft — it stops and names the files instead of guessing, like a merge
 conflict. Put what should stand into the draft, or take the marker out if the
-deletion should not happen, and run it again; a draft file that matches the
-protected one is the sign that somebody has decided. What the last approved
-state was is remembered in `~/.local/state/devcontainer-sandbox/`, which is
-what tells a change of yours apart from one of the container's.
+deletion should not happen, and run it again — a draft file that says the
+same as the protected one is not a proposal, and is how you say you have
+decided. A file nothing is proposed for follows your changes freely; the
+collision only exists while a proposal for that very file is open. What the
+protected files said when that was last the case is remembered in
+`~/.local/state/devcontainer-sandbox/`.
 
 **The draft never enters the repository.** It carries a `.gitignore` of its
 own that ignores everything in it, and `devcontainer-push` refuses a push

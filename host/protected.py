@@ -6,14 +6,18 @@ container's reach. The container writes its proposals into protected_draft/
 next to them, and devcontainer-approve copies them over on the host once the
 diff has been read.
 
-The last approved state is kept in ~/.local/state/devcontainer-sandbox/, as
-hashes. Without it a change made on the host and a change made in the
-container cannot be told apart, and approving would silently undo the host's
-work. With it, a draft that nobody touched is simply refreshed on every start,
-so a file missing from a draft directory means "delete this" and not "I only
-wrote one file".
+The draft holds proposals and nothing else. It is never filled with copies of
+the protected files: what lies in it is what somebody is being asked to
+accept, and a directory full of unchanged copies would bury that. The
+container copies a file in itself when it wants to change one, and removing
+something is asked for with a marker, never by leaving a file out.
 
-Imported by start.py, which refreshes the untouched drafts, and by approve.py.
+The state in ~/.local/state/devcontainer-sandbox/ says what the protected
+files looked like the last time nothing was proposed for them. A file with no
+open proposal follows the host freely; while a proposal is open, a change on
+the host is a collision, and that is exactly what this makes visible.
+
+Imported by start.py, which records that state, and by approve.py.
 """
 
 import hashlib
@@ -119,19 +123,31 @@ def tree_state(root: Path) -> dict[str, list]:
     return state
 
 
-def copy_tree(source: Path, target: Path) -> None:
-    """Replaces target with a copy of source. Only for writing drafts."""
-    tree_state(source)  # refuses links and anything else, before deleting
-    if target.is_symlink() or (target.exists() and not target.is_dir()):
-        target.unlink()
-    elif target.is_dir():
-        shutil.rmtree(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if source.is_dir():
-        shutil.copytree(source, target, symlinks=False)
-    else:
-        shutil.copyfile(source, target)
-        shutil.copymode(source, target)
+def deletions(marker: str, current: dict) -> list[str]:
+    """What a NAME.delete marker asks to remove, as paths inside the protected
+    path. A marker for a directory names every file under it, one by one:
+    deleting a tree is something to see, not to read about."""
+    target = marker[:-len(DELETE_SUFFIX)]
+    if not target:
+        # A bare ".delete" would ask for the protected path itself, which is
+        # a mount source: without it the mount has nothing to point at.
+        return []
+    if target in current:
+        return [target]
+    return sorted(inside for inside in current
+                  if inside.startswith(target + "/"))
+
+
+def spoken_for(drafted: dict, current: dict, markers_only: bool = False) -> set:
+    """The paths a draft says something about: the files it holds, and what
+    its deletion markers name. With markers_only, just the latter."""
+    covered = set() if markers_only else {
+        inside for inside in drafted if not inside.endswith(DELETE_SUFFIX)}
+    for marker in drafted:
+        if marker.endswith(DELETE_SUFFIX):
+            covered.update(deletions(marker, current))
+            covered.add(marker[:-len(DELETE_SUFFIX)])
+    return covered
 
 
 def ignore_draft(workspace: Path) -> None:
@@ -147,11 +163,10 @@ def ignore_draft(workspace: Path) -> None:
 
 
 def reset_draft(workspace: Path) -> None:
-    """Empties the draft and writes the protected files into it again.
+    """Empties the draft, apart from the .gitignore that keeps it out of git.
 
-    After an approval nothing in it is pending any more. Leaving the copies
-    there would propose every one of them a second time, and a file that was
-    just deleted would come back as a new one on the very next run.
+    After an approval nothing in it is pending any more, and what is not
+    pending has no business being there.
     """
     root = workspace / DRAFT_DIR
     if root.is_dir():
@@ -163,68 +178,40 @@ def reset_draft(workspace: Path) -> None:
             else:
                 entry.unlink()
     write_state(workspace, {})
-    sync_draft(workspace)
+    update_base(workspace)
 
 
-def sync_draft(workspace: Path) -> list[str]:
-    """Brings the draft files nobody edited up to date with the protected ones.
+def update_base(workspace: Path) -> None:
+    """Records what the protected files say where nothing is proposed.
 
-    File by file, not whole trees: one file the container is still working on
-    must not keep the rest of the draft in the past, or it would propose
-    undoing what the host did in the meantime. A draft file that differs from
-    the last approved state is the container's own work and stays untouched,
-    and so is a deletion marker, which has nothing to correspond to.
-
-    A draft file that is missing is written again from the protected one:
-    absence is never a proposal, so deleting a draft file is how one is
-    withdrawn.
+    A file the draft says nothing about is in agreement with the host by
+    definition, so whatever it says now is what a later proposal will be
+    measured against. So is a draft file that says the same as the protected
+    one: identical is not a proposal, and it is how somebody ends a collision
+    they have decided by hand. Only a file with something open - different
+    content, or a marker asking for it to go - keeps the state it had, which
+    is what makes a change on the host in the meantime visible at all.
     """
+    paths = protected_paths(workspace)
+    if not paths:
+        return
+    ignore_draft(workspace)
     approved = read_state(workspace)
-    refreshed = []
-    if protected_paths(workspace):
-        ignore_draft(workspace)
-    for relative in protected_paths(workspace):
+    for relative in paths:
         source = workspace / relative
         draft = workspace / DRAFT_DIR / relative
-        if not source.exists():
-            continue
-        current = tree_state(source)
-        if not draft.exists():
-            copy_tree(source, draft)
-            approved[relative] = current
-            refreshed.append(relative)
-            continue
-        have = tree_state(draft)
+        current = tree_state(source) if source.exists() else {}
+        drafted = tree_state(draft) if draft.exists() else {}
         was = dict(approved.get(relative, {}))
-        touched = False
-        for inside in sorted(set(current) | set(have) | set(was)):
-            if inside.endswith(DELETE_SUFFIX):
-                continue                       # a marker, not a copy
-            if have.get(inside) == current.get(inside):
-                # Draft and protected file say the same thing, so nothing is
-                # pending for it and this is what a later proposal is
-                # measured against. It is also how a conflict ends once
-                # somebody has decided it by hand.
-                if inside in current:
-                    was[inside] = current[inside]
-                else:
-                    was.pop(inside, None)
-                continue
-            if inside in have and have.get(inside) != was.get(inside):
-                continue                       # the container's own work
-            here = (draft / inside) if inside else draft
-            there = (source / inside) if inside else source
+        marked = spoken_for(drafted, current, markers_only=True)
+        for inside in set(current) | set(was):
+            if inside in marked:
+                continue                       # its removal is proposed
+            if inside in drafted and drafted[inside] != current.get(inside):
+                continue                       # a change to it is proposed
             if inside in current:
-                here.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(there, here)
-                shutil.copymode(there, here)
                 was[inside] = current[inside]
             else:
-                here.unlink()
                 was.pop(inside, None)
-            touched = True
         approved[relative] = was
-        if touched:
-            refreshed.append(relative)
     write_state(workspace, approved)
-    return refreshed

@@ -21,9 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from devcontainer_cli import die  # noqa: E402
-from protected import (DELETE_SUFFIX, DRAFT_DIR,  # noqa: E402
-                       protected_paths, read_state, reset_draft, sync_draft,
-                       tree_state)
+from protected import (DELETE_SUFFIX, DRAFT_DIR, deletions,  # noqa: E402
+                       protected_paths, read_state, reset_draft, tree_state,
+                       update_base)
 
 # A protected file is configuration, a rule, a script. Anything of this size
 # is worth a second look before it is copied over.
@@ -61,21 +61,6 @@ def show_diff(old, new, label):
         print("  " + line.rstrip("\n"))
     if len(lines) > DIFF_LINES:
         print(f"  ... and {len(lines) - DIFF_LINES} more diff lines")
-
-
-def deletions(marker, current):
-    """What a NAME.delete marker asks to remove, as paths inside the protected
-    path. A marker for a directory names every file under it, one by one:
-    deleting a tree is something to see, not to read about."""
-    target = marker[:-len(DELETE_SUFFIX)]
-    if not target:
-        # A bare ".delete" would ask for the protected path itself, which is
-        # a mount source: without it the mount has nothing to point at.
-        return []
-    if target in current:
-        return [target]
-    return sorted(inside for inside in current
-                  if inside.startswith(target + "/"))
 
 
 def collect(workspace, relative, approved):
@@ -227,12 +212,9 @@ def main():
             'its own folder in .devcontainer/devcontainer.json (README '
             '"Protected files")')
 
-    # First bring the draft files nobody edited up to date, so that what is
-    # compared below is the container's work and not the time in between.
-    refreshed = sync_draft(workspace)
-    if refreshed:
-        print(f"Refreshed the draft of {', '.join(refreshed)} from the host")
-
+    # Files nothing is proposed for follow the host; the rest keeps the state
+    # a proposal would be measured against.
+    update_base(workspace)
     approved = read_state(workspace)
     everything, conflicting, strays = {}, {}, {}
     for relative in paths:

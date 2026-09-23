@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import STATE_DIR, TOKEN_DIR  # noqa: E402
 from devcontainer_cli import (DOCKER, Cli, die,  # noqa: E402
                               docker_value, load_jsonc)
-from protected import sync_draft  # noqa: E402
+from protected import update_base  # noqa: E402
 from deploy_key import (CONTAINER_KEY, CONTAINER_KNOWN_HOSTS,  # noqa: E402
                         KEY_DIR, deploy_repo, key_file)
 from remote import (REMOTE_SETTING, github_repo, origin_mismatch,  # noqa: E402
@@ -526,11 +526,9 @@ def main():
     settings = read_settings(sandbox_env(workspace))
     ensure_deploy_key(workspace, settings)
 
-    # Drafts nobody edited follow the protected files, so that what the
-    # container sees there is current (README "Protected files").
-    refreshed = sync_draft(workspace)
-    if refreshed:
-        print(f"Refreshed the draft of {', '.join(refreshed)}")
+    # What the protected files say now is what a proposal will be measured
+    # against, unless one is already open for them (README "Protected files").
+    update_base(workspace)
 
     # Create bind-mount sources on the host. The same script also runs as
     # initializeCommand, but inside the CLI container ssh-keygen may not work.
