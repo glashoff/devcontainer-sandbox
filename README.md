@@ -31,6 +31,7 @@ never leaves the machine.
 - [Server access](#server-access)
 - [Fetching from GitHub](#fetching-from-github)
 - [Pushing from the host](#pushing-from-the-host)
+- [Claude Code's login](#claude-codes-login)
 - [Rolling back](#rolling-back)
 - [Verify the sandbox](#verify-the-sandbox)
 - [Repository layout](#repository-layout)
@@ -75,6 +76,10 @@ Worth reading before trusting it with anything:
   nothing from the project ([Pushing from the host](#pushing-from-the-host)):
   a plain `git push` on the host runs the hooks and the `.git/config` of the
   project.
+- **A container that is signed in to Claude Code holds that login.** With a
+  project token it is a credential for model requests only
+  ([Claude Code's login](#claude-codes-login)); after `/login` inside the
+  container it is the account's OAuth pair, in that project's volume.
 - **Anything enabled per project widens it.** A Wayland socket allows fake
   windows and clipboard access, an audio socket allows recording the
   microphone, a GPU device is a large kernel attack surface, and server access
@@ -225,7 +230,8 @@ clone's `host/` directory, creates the `devcontainer-start`,
 `devcontainer-build-image` and `devcontainer-push` commands in `~/.local/bin`,
 installs the systemd units, starts the daily build timer (`--no-timer` to skip
 that), puts a configuration template in
-`~/.config/devcontainer-sandbox/config` and adds two entries to the file
+`~/.config/devcontainer-sandbox/config`, creates `claude-tokens/` next to it
+([Claude Code's login](#claude-codes-login)) and adds two entries to the file
 manager: right-click a project folder, *Open With*, and **Dev container**
 starts the container and opens the editor, **Git push** pushes the project
 ([Pushing from the host](#pushing-from-the-host)). Both run in a terminal
@@ -729,6 +735,53 @@ skips the questions.
 Push rules on the remote (GitHub rulesets or GitLab protected branches that
 block force pushes and deletions) protect the history from everything else.
 
+
+## Claude Code's login
+
+Signing in to Claude Code **inside** a container writes
+`~/.claude/.credentials.json` there: an OAuth access and refresh token of your
+Anthropic account. That is a full account credential — the refresh token means
+expiry does not help — and everything in the container can read it. Each
+project's `~/.claude` is a volume of its own, so the transcripts stay separate,
+but every container that has been signed in holds its own copy of that
+credential.
+
+A token from `claude setup-token` is the smaller credential for this. It
+[can only make model requests](https://code.claude.com/docs/en/authentication),
+so it reaches neither Remote Control nor your claude.ai connectors, and it can
+be issued more than once — one per project.
+
+On the host, in the clone or anywhere else:
+
+```sh
+claude setup-token                      # prints the token, saves it nowhere
+$EDITOR ~/.config/devcontainer-sandbox/claude-tokens/NAME
+```
+
+`NAME` is the project folder's name, as with the gitconfig. On the next
+`devcontainer-start` the token is written into `~/.claude/settings.json` of
+that container:
+
+```json
+{ "env": { "CLAUDE_CODE_OAUTH_TOKEN": "..." } }
+```
+
+Whatever else that file holds stays as it is, and deleting the token file
+removes the variable again on the next start. Since the token outranks a login
+made in the container, `devcontainer-start` also removes
+`.credentials.json` there and says so: the login would have no effect, and it
+is the credential this is meant to get out of the container.
+
+What this does not do: the container can still read the token, since Claude
+Code runs with it. The point is what the token is worth — quota, not the
+account.
+
+Two things to know before relying on it. The token is valid for **one year**,
+and there is no way to revoke it from the command line
+([#48373](https://github.com/anthropics/claude-code/issues/48373)); a
+compromised project means revoking that one token in the web console. And the
+file is named after the project folder, so two projects with the same folder
+name in different places share a token.
 
 ## Rolling back
 

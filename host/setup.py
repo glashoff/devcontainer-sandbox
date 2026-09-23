@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import CONFIG_DIR, CONFIG_FILE  # noqa: E402
+from config import CONFIG_DIR, CONFIG_FILE, TOKEN_DIR  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DEST = Path.home() / ".local/share/devcontainer-sandbox"
@@ -137,6 +137,10 @@ def main() -> None:
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_DIR.chmod(0o700)
+    # Created here so that the tokens in it are never world-readable, whatever
+    # umask the shell that writes them has (README "Claude Code's login").
+    TOKEN_DIR.mkdir(exist_ok=True)
+    TOKEN_DIR.chmod(0o700)
     if not CONFIG_FILE.exists():
         shutil.copyfile(HERE / "config.example", CONFIG_FILE)
         print(f"Configuration template in {CONFIG_FILE} (server, mail)")

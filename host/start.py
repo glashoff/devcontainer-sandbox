@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import TOKEN_DIR  # noqa: E402
 from devcontainer_cli import DOCKER, Cli, die, docker_value  # noqa: E402
 from deploy_key import (CONTAINER_KEY, CONTAINER_KNOWN_HOSTS,  # noqa: E402
                         KEY_DIR, deploy_repo, key_file)
@@ -30,6 +31,9 @@ from remote import (REMOTE_SETTING, github_repo, origin_mismatch,  # noqa: E402
                     read_settings, recorded_origin, sandbox_env)
 
 CONTAINER_SSH_PORT = "2222"
+CLAUDE_SETTINGS = "~/.claude/settings.json"
+CLAUDE_CREDENTIALS = "~/.claude/.credentials.json"
+TOKEN_VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
 SSH_KEY = Path(os.environ.get("DEVCONTAINER_SSH_KEY")
                or Path.home() / ".ssh/devcontainer_ed25519")
 SSH_CA = Path(os.environ.get("DEVCONTAINER_SSH_CA")
@@ -244,6 +248,62 @@ def install_deploy_key(workspace, settings, container_id, remote_user):
                  f"umask 077 && cat > {CONTAINER_KNOWN_HOSTS}", stdin=known)
 
 
+def install_claude_token(workspace, container_id, remote_user):
+    """Gives the container the project's own Claude Code token, if it has one.
+
+    A token from "claude setup-token" can only make model requests, so a
+    container holding one cannot reach the account behind it: no Remote
+    Control, no claude.ai connectors. A login made inside the container is the
+    opposite, an OAuth pair with a refresh token, which is why it is removed
+    once a token is configured. The token outranks it anyway, so a login there
+    would have no effect (README "Claude Code's login").
+
+    The token lives in ~/.claude/settings.json of the container's own volume,
+    which no other project can see. Whatever else that file holds stays.
+    """
+    token_file = TOKEN_DIR / workspace.name
+    token = ""
+    if token_file.is_file():
+        if token_file.stat().st_mode & 0o077:
+            token_file.chmod(0o600)
+            print(f"Tightened the permissions of {token_file} to 600")
+        token = token_file.read_text().strip()
+        # It ends up in a JSON file and in the environment, not in a shell.
+        if not re.fullmatch(r"\S+", token):
+            die(f"{token_file} does not hold a single token")
+
+    current = in_container(container_id, remote_user,
+                           f"cat {CLAUDE_SETTINGS} 2>/dev/null || true",
+                           capture=True)
+    if not (token or current.strip()):
+        return
+    try:
+        claude_settings = json.loads(current) if current.strip() else {}
+    except json.JSONDecodeError:
+        die(f"{CLAUDE_SETTINGS} in the container is not valid JSON; "
+            "fix or delete it in the container, it is not overwritten here")
+    environment = claude_settings.get("env", {})
+    if token:
+        environment[TOKEN_VARIABLE] = token
+    else:
+        environment.pop(TOKEN_VARIABLE, None)
+    if environment:
+        claude_settings["env"] = environment
+    else:
+        claude_settings.pop("env", None)
+    in_container(container_id, remote_user,
+                 f"umask 077 && mkdir -p ~/.claude && cat > {CLAUDE_SETTINGS}",
+                 stdin=json.dumps(claude_settings, indent=2) + "\n")
+    if not token:
+        return
+    # The login is a full account credential; the token makes it unnecessary.
+    removed = in_container(container_id, remote_user,
+                           f"rm -vf {CLAUDE_CREDENTIALS}", capture=True)
+    print(f"Claude Code in the container uses {token_file.name} "
+          "(model requests only)"
+          + (", and the login stored in it was removed" if removed.strip() else ""))
+
+
 def sign_server_certificate(settings, container_id, remote_user, name):
     """Short-lived SSH access to a server (README "Server access").
 
@@ -454,6 +514,7 @@ def main():
     grant_device_groups(container_id, remote_user)
 
     install_deploy_key(workspace, settings, container_id, remote_user)
+    install_claude_token(workspace, container_id, remote_user)
     if settings.get("SERVER_SSH_HOST"):
         sign_server_certificate(settings, container_id, remote_user, name)
 

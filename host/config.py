@@ -2,7 +2,9 @@
 
 ~/.config/devcontainer-sandbox/config holds everything specific to this
 machine: the server that dev containers may reach, and the mail account that
-reports failed builds. See config.example.
+reports failed builds. See config.example. The directory around it holds the
+rest that must not be in a project: the CA key, the deploy keys and the
+projects' Claude Code tokens.
 """
 
 import re
@@ -13,6 +15,9 @@ CONFIG_DIR = Path.home() / ".config/devcontainer-sandbox"
 CONFIG_FILE = CONFIG_DIR / "config"
 CA_DIR = CONFIG_DIR / "ssh-ca"
 CA_KEY = CA_DIR / "ca"
+# One Claude Code token per project, named after its folder, written by hand
+# from "claude setup-token" (README "Claude Code's login").
+TOKEN_DIR = CONFIG_DIR / "claude-tokens"
 
 
 def read_config(path: Path | None = None) -> dict[str, str]:
