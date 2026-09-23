@@ -222,12 +222,15 @@ journalctl --user -u devcontainer-build-image.service
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start`,
-`devcontainer-build-image` and `devcontainer-push` commands in `~/.local/bin`, installs the systemd
-units, starts the daily build timer (`--no-timer` to skip that), puts a
-configuration template in `~/.config/devcontainer-sandbox/config` and adds a
-**Dev container** entry to the file manager: right-click a project folder,
-*Open With*, and it starts the container and opens the editor. Started that way
-it runs in a terminal window that stays open if something went wrong.
+`devcontainer-build-image` and `devcontainer-push` commands in `~/.local/bin`,
+installs the systemd units, starts the daily build timer (`--no-timer` to skip
+that), puts a configuration template in
+`~/.config/devcontainer-sandbox/config` and adds two entries to the file
+manager: right-click a project folder, *Open With*, and **Dev container**
+starts the container and opens the editor, **Git push** pushes the project
+([Pushing from the host](#pushing-from-the-host)). Both run in a terminal
+window: the first keeps it open if something went wrong, the second until the
+push has been read.
 
 Changes in `image/` are picked up by the next build
 (`devcontainer-build-image` to build right away).
@@ -670,13 +673,14 @@ it is; only the container sees the rewrite.
 
 ## Pushing from the host
 
-Containers cannot push — their deploy key is read-only — so the host does. A plain `git push` in the project is
-the wrong tool for that, because the project's `.git/` is writable from inside
-the container: hooks, `core.hooksPath`, `core.sshCommand`, `credential.helper`
-or a push refspec with `+` in `.git/config` would all run on the host.
+Containers cannot push — their deploy key is read-only — so the host does it.
+A plain `git push` in the project is the wrong tool for that, because the
+project's `.git/` is writable from inside the container: hooks,
+`core.hooksPath`, `core.sshCommand`, `credential.helper` or a push refspec
+with `+` in `.git/config` would all run on the host.
 
 ```sh
-devcontainer-push ~/Projects/NAME     # or, in the project: devcontainer-push
+devcontainer-push ~/Projects/NAME     # or: right-click the folder, Open With > Git push
 ```
 
 [push.py](host/push.py) never runs git inside the project. It fetches the

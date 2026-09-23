@@ -29,6 +29,9 @@ UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer"]
 COMMANDS = {"devcontainer-start": "start.py",
             "devcontainer-build-image": "build-image.py",
             "devcontainer-push": "push.py"}
+# Desktop entry -> the placeholder in it and the script that replaces it.
+ENTRIES = {"devcontainer-start.desktop": ("@START@", "start.py"),
+           "devcontainer-push.desktop": ("@PUSH@", "push.py")}
 TIMER = "devcontainer-build-image.timer"
 # Files an earlier version of setup.py copied into DEST instead of linking it.
 COPIED_BY_OLD_SETUP = ["start.py", "build-image.py", "initialize.py",
@@ -74,21 +77,22 @@ def replace_old_installation() -> None:
     print(f"Removed the copies in {DEST}")
 
 
-def install_desktop_entry() -> None:
-    """Adds "Dev container" to the file manager's Open With menu for folders.
+def install_desktop_entries() -> None:
+    """Adds the file manager's Open With entries for a project folder.
 
     A desktop entry cannot expand ~, so the real path is written into it.
     """
     APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    entry = APPLICATIONS_DIR / "devcontainer-start.desktop"
-    entry.write_text((HERE / "devcontainer-start.desktop").read_text()
-                     .replace("@START@", str(DEST / "start.py")))
-    entry.chmod(0o644)
+    for name, (placeholder, script) in ENTRIES.items():
+        entry = APPLICATIONS_DIR / name
+        entry.write_text((HERE / name).read_text()
+                         .replace(placeholder, str(DEST / script)))
+        entry.chmod(0o644)
     if shutil.which("update-desktop-database"):
         subprocess.run(["update-desktop-database", str(APPLICATIONS_DIR)],
                        capture_output=True)
-    print(f"File manager entry in {entry.name}: right-click a project folder, "
-          "Open With > Dev container")
+    print("File manager entries: right-click a project folder, Open With > "
+          "Dev container (start it) or Git push")
 
 
 def systemctl(*args: str) -> int:
@@ -120,7 +124,7 @@ def main() -> None:
     if str(BIN) not in os.environ.get("PATH", "").split(":"):
         print(f"Note: {BIN} is not in PATH", file=sys.stderr)
 
-    install_desktop_entry()
+    install_desktop_entries()
 
     for name in UNITS:
         install(HERE / name, UNIT_DIR, 0o644)
