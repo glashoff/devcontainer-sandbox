@@ -837,11 +837,28 @@ mounts each of them read-only, at its own path, in
 ```
 
 The mount **is** the marking: there is no second list to keep in step, and
-what counts is what actually holds in the container. Read-only mounts of the
-project's own folder (`${localWorkspaceFolder}/...`) are the protected paths,
-nothing else; give them the same path inside, so the file stays where the
-project expects it. `.devcontainer/` is one of them in the template already.
-After adding one, recreate the container: `devcontainer-start --rebuild`.
+what counts is what actually holds in the container. `.devcontainer/` is one
+of them in the template already. After adding one, recreate the container:
+`devcontainer-start --rebuild`.
+
+A mount counts as a protected path when all of this holds, and nothing else
+does:
+
+- `type=bind` and `readonly`
+- source `${localWorkspaceFolder}/<path>` — the project's own folder, never
+  anything from outside it
+- target `${containerWorkspaceFolder}/<the same path>`
+- `<path>` written plainly: `name` or `name/inside`, no `..`, no `.`, no
+  doubled or trailing slashes, and not the project folder itself
+
+The first three are what makes the claim true. A read-only mount that lands
+somewhere else in the container leaves the file in the project writable
+there, so calling it protected would be a lie; such a mount is simply not
+part of this. A source pointing out of the project, `../../.ssh`, would have
+`devcontainer-approve` write outside the project — so that one is not
+ignored but refused, and `devcontainer-start` stops with it. The last rule
+exists because a path nobody can read at a glance is one nobody checks
+either.
 
 Inside the container these are read-only for real: writing, creating,
 deleting, renaming the mount point and unmounting are all refused, and

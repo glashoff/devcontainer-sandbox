@@ -38,6 +38,7 @@ DRAFT_DIR = "protected_draft"
 DELETE_SUFFIX = ".delete"
 SANDBOX_DIR = ".devcontainer"
 WORKSPACE_PREFIX = "${localWorkspaceFolder}/"
+CONTAINER_PREFIX = "${containerWorkspaceFolder}/"
 
 
 def mount_fields(mount) -> tuple[str, str, bool]:
@@ -50,6 +51,35 @@ def mount_fields(mount) -> tuple[str, str, bool]:
     readonly = ("readonly" in parts
                 or fields.get("readonly", "").lower() in ("true", "1"))
     return fields.get("source", ""), fields.get("type", "bind"), readonly
+
+
+def target_of(mount) -> str:
+    """Where a mount lands in the container, in either form."""
+    if isinstance(mount, dict):
+        return mount.get("target") or mount.get("destination", "")
+    fields = dict(part.strip().split("=", 1)
+                  for part in str(mount).split(",") if "=" in part)
+    return fields.get("target") or fields.get("destination", "")
+
+
+def relative_path(source: str, prefix: str) -> str | None:
+    """The path a mount names below prefix, as clean components, or None.
+
+    Nothing that leaves the folder is accepted: "..", an absolute rest and
+    the folder itself are refused outright rather than skipped, because each
+    of them is a claim of protection that cannot be kept, and a claim nobody
+    checked is worse than no claim.
+    """
+    if not source.startswith(prefix):
+        return None
+    rest = source[len(prefix):]
+    parts = [part for part in rest.split("/") if part not in ("", ".")]
+    if not parts or ".." in parts or rest != "/".join(parts):
+        die(f"Mount of {source} in devcontainer.json: write a protected path "
+            "plainly, as name or name/inside - no \"..\", no \".\", no "
+            "doubled or trailing slashes, and not the project folder itself. "
+            "What cannot be read at a glance cannot be checked either.")
+    return "/".join(parts)
 
 
 def protected_paths(workspace: Path) -> list[str]:
@@ -69,12 +99,18 @@ def protected_paths(workspace: Path) -> list[str]:
     paths = []
     for mount in load_jsonc(config_file).get("mounts") or []:
         source, kind, readonly = mount_fields(mount)
-        if not (readonly and kind == "bind"
-                and source.startswith(WORKSPACE_PREFIX)):
+        if not (readonly and kind == "bind"):
             continue
-        relative = source[len(WORKSPACE_PREFIX):].strip("/")
-        if relative and relative.split("/")[0] != DRAFT_DIR:
-            paths.append(relative)
+        relative = relative_path(source, WORKSPACE_PREFIX)
+        if relative is None or relative.split("/")[0] == DRAFT_DIR:
+            continue
+        # The same path on both sides, or the claim does not hold: a file
+        # mounted read-only somewhere else leaves the one in the project
+        # writable, and approving changes to it would protect nothing. Such
+        # a mount is simply not part of this; it is not an error.
+        if relative_path(target_of(mount), CONTAINER_PREFIX) != relative:
+            continue
+        paths.append(relative)
     return sorted(dict.fromkeys(paths))
 
 
