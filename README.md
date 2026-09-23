@@ -755,6 +755,7 @@ On the host:
 
 ```sh
 devcontainer-start --claude-token ~/Projects/NAME
+cd ~/Projects/NAME && devcontainer-start --claude-token   # the same
 ```
 
 This runs `claude setup-token` for you and writes what you paste back to
@@ -785,9 +786,19 @@ made in the container, `devcontainer-start` also removes
 `.credentials.json` there and says so: the login would have no effect, and it
 is the credential this is meant to get out of the container.
 
+**A project that is already running** needs nothing else: the command above
+is all there is to it, and the next start takes the login out of the
+container. Do not delete its `~/.claude`; that volume also holds the
+project's transcripts (`/resume`), its plugins and its settings, and the
+token is merged into the settings file rather than replacing it.
+
 What this does not do: the container can still read the token, since Claude
 Code runs with it. The point is what the token is worth — quota, not the
-account.
+account. What also stays behind in the volume is `.claude.json`, which
+records the account a login belonged to (`accountUuid`, the email address,
+the organization). Those are account details, not a credential — nothing to
+sign in with. Deleting the file is safe if you would rather not have the
+address in the container; Claude Code writes it again.
 
 Two things to know before relying on it. The token is valid for **one year**,
 and there is no way to revoke it from the command line
