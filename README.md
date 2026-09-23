@@ -760,7 +760,14 @@ cd ~/Projects/NAME && devcontainer-start --claude-token   # the same
 
 This runs `claude setup-token` for you and writes what you paste back to
 `~/.config/devcontainer-sandbox/claude-tokens/NAME`, with mode 600, before it
-starts the container as usual. The manual way is the same thing:
+starts the container as usual. Paste it and press Enter on an empty line: a
+token is longer than a terminal is wide, so copying it out brings a line
+break along, and the pieces are put back together here. Before writing, the
+token is held against the API once — a copy that lost its end is refused
+right away instead of turning into a login prompt in the container.
+
+The manual way is the same thing, and then the length is worth a look
+(around 110 characters):
 
 ```sh
 claude setup-token                      # prints the token, saves it nowhere

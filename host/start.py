@@ -19,6 +19,8 @@ import socket
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -31,6 +33,12 @@ from remote import (REMOTE_SETTING, github_repo, origin_mismatch,  # noqa: E402
                     read_settings, recorded_origin, sandbox_env)
 
 CONTAINER_SSH_PORT = "2222"
+# Reading the model list costs nothing; only the authentication is of
+# interest, to tell a mistyped or truncated token from a working one.
+CLAUDE_MODELS_URL = "https://api.anthropic.com/v1/models"
+# A token is around 110 characters. Anything far below that is a copy that
+# lost its end, which is what a wrapped terminal line does to one.
+TOKEN_MIN_LENGTH = 60
 CLAUDE_SETTINGS = "~/.claude/settings.json"
 CLAUDE_CREDENTIALS = "~/.claude/.credentials.json"
 TOKEN_VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
@@ -248,6 +256,41 @@ def install_deploy_key(workspace, settings, container_id, remote_user):
                  f"umask 077 && cat > {CONTAINER_KNOWN_HOSTS}", stdin=known)
 
 
+def token_accepted(token):
+    """Whether Anthropic accepts this token; None if the check did not happen.
+
+    Only 401 counts as a rejection, so a change on the other side can never
+    make this throw away a token that works.
+    """
+    request = urllib.request.Request(CLAUDE_MODELS_URL, headers={
+        "authorization": f"Bearer {token}",
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025-04-20"})
+    try:
+        with urllib.request.urlopen(request, timeout=15):
+            return True
+    except urllib.error.HTTPError as error:
+        return error.code != 401
+    except OSError:
+        return None
+
+
+def paste_token():
+    """Reads a pasted token, which arrives in more than one line if the
+    terminal wrapped it on the way out of setup-token."""
+    print("\nPaste the token here, then press Enter on an empty line:")
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if not line.strip():
+            break
+        lines.append(line)
+    return "".join("".join(lines).split())
+
+
 def mint_claude_token(workspace):
     """Creates this project's Claude Code token with "claude setup-token".
 
@@ -272,10 +315,19 @@ def mint_claude_token(workspace):
             return
     print("\nclaude setup-token opens a browser and prints the token at the end.")
     subprocess.run(["claude", "setup-token"])
-    token = input("\nPaste the token here: ").strip()
-    # Long, and a single word: it goes into JSON and into the environment.
-    if not re.fullmatch(r"\S{20,}", token):
-        die("That does not look like a token, nothing was written")
+    token = paste_token()
+    if len(token) < TOKEN_MIN_LENGTH:
+        die(f"Only {len(token)} characters, too short for a token; nothing "
+            "was written. Copy the whole token, including what a wrapped "
+            "line put on the next row.")
+    accepted = token_accepted(token)
+    if accepted is False:
+        die("Anthropic rejects this token, so nothing was written. A copy "
+            "that lost its end is the usual reason; the token itself was "
+            "created and can be replaced by running this again.")
+    if accepted is None:
+        print("Warning: could not reach the API to check the token, "
+              "writing it unchecked", file=sys.stderr)
     TOKEN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     token_file.write_text(token + "\n")
     token_file.chmod(0o600)
@@ -305,6 +357,11 @@ def install_claude_token(workspace, container_id, remote_user):
         # It ends up in a JSON file and in the environment, not in a shell.
         if not re.fullmatch(r"\S+", token):
             die(f"{token_file} does not hold a single token")
+        if len(token) < TOKEN_MIN_LENGTH:
+            print(f"Warning: the token in {token_file} is only {len(token)} "
+                  "characters; a copy that lost its end is the usual reason, "
+                  "and Claude Code in the container will ask for a login",
+                  file=sys.stderr)
 
     current = in_container(container_id, remote_user,
                            f"cat {CLAUDE_SETTINGS} 2>/dev/null || true",
