@@ -15,6 +15,8 @@ ARG REFRESH
 # Node comes from nvm in the base image, so this layer can pull a new LTS
 # release; on most days nvm finds nothing to do and the layer stays small.
 # Claude Code is installed afterwards, so it lands in the current version.
+# It is exempt from the npm defaults in /etc/npmrc: it should be the newest
+# release every day, and its postinstall script sets up its native binary.
 RUN echo "Updates of ${REFRESH}" \
  && apt-get update \
  && apt-get -y upgrade \
@@ -23,5 +25,6 @@ RUN echo "Updates of ${REFRESH}" \
       && nvm install --lts \
       && nvm alias default "lts/*" \
       && ln -sfn "$NVM_DIR/versions/node/$(nvm version default)" "$NVM_DIR/current"' \
- && npm install -g @anthropic-ai/claude-code@latest \
+ && npm install -g --min-release-age=0 --ignore-scripts=false \
+      @anthropic-ai/claude-code@latest \
  && npm cache clean --force

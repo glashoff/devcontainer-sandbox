@@ -21,6 +21,7 @@ never leaves the machine.
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Tools in the image](#tools-in-the-image)
+- [Dependencies: npm and Cargo defaults](#dependencies-npm-and-cargo-defaults)
 - [How updates work](#how-updates-work)
 - [Host setup in detail](#host-setup-in-detail)
 - [Starting a project](#starting-a-project)
@@ -132,7 +133,8 @@ once.
 - Python (Debian's)
 - C/C++: gcc (`build-essential`), clang, clangd, clang-format, clang-tidy,
   LLVM, lld, gdb, cmake, ninja
-- Rust: rustup with the current stable toolchain, rustfmt, clippy
+- Rust: rustup with the current stable toolchain, rustfmt, clippy,
+  cargo-audit, cargo-deny
 - Chromium and Firefox for Playwright, ready to use ([Browsers](#browsers))
 - Wayland client libraries, Mesa (OpenGL/Vulkan, software rendering without GPU)
 
@@ -142,6 +144,33 @@ Per project, in Docker volumes that survive rebuilds: the Claude Code login
 
 The list is one person's toolbox, and editing it is expected — see
 [Adding a tool](#adding-a-tool).
+
+## Dependencies: npm and Cargo defaults
+
+The sandbox limits what a hijacked package can reach; these defaults make it
+less likely that one gets installed at all. Popular packages are hijacked now
+and then, and most such releases are found and removed within hours or days.
+
+**npm** reads [image/.devcontainer/npmrc](image/.devcontainer/npmrc) as its
+global configuration (`/etc/npmrc`):
+
+- `min-release-age=7`: only versions published at least 7 days ago are
+  installed. A security fix that cannot wait: `npm install PACKAGE@VERSION
+  --min-release-age=0`, or list the package under `min-release-age-exclude`
+  in the project's `.npmrc`.
+- `ignore-scripts=true`: install scripts of dependencies do not run. A native
+  module that needs its build: `npm rebuild PACKAGE --ignore-scripts=false`,
+  after looking at what it runs.
+
+Both are the lowest-priority settings, so a project's `.npmrc` overrides them.
+pnpm, Yarn and Bun do not read them; they have their own settings
+(`minimumReleaseAge`, `npmMinimalAgeGate`), set per project. Claude Code itself
+is exempt, the daily build installs its newest release.
+
+**Cargo** has no stable cooldown yet (`-Z min-publish-age` exists on nightly
+only), and build scripts and procedural macros cannot be switched off. The
+image adds `cargo-audit` and `cargo-deny` instead; build with `--locked` and
+update crates one at a time. Here, the container is the main protection.
 
 ## How updates work
 

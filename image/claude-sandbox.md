@@ -25,6 +25,7 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 | Claude Code | global npm package, updated by the image build |
 | Python 3 (Debian), pip, venv | `/usr/bin/python3` |
 | Rust (stable), cargo, rustfmt, clippy | `/usr/local/cargo/bin`, toolchains in `/usr/local/rustup` |
+| cargo-audit, cargo-deny | `/usr/local/cargo/bin` |
 | gcc, g++, make (`build-essential`), gdb, cmake, ninja, pkg-config | `/usr/bin` |
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
 | GitHub CLI `gh`, git | `/usr/bin` (`gh` not logged in; git has a name and email, and can fetch from GitHub but not push) |
@@ -38,6 +39,25 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
   environment in the project: `python3 -m venv .venv`.
 - Rust: crates via `Cargo.toml`. `cargo install` works but lands in
   `/usr/local/cargo/bin` and is lost on the next recreation.
+
+## Supply chain defaults
+
+Hijacked releases of popular packages are a real risk, so the image sets
+defaults against them. Do not switch them off on your own; ask the user.
+
+- npm (`/etc/npmrc`): `min-release-age=7` installs only versions published at
+  least 7 days ago, and `ignore-scripts=true` skips the install scripts of
+  dependencies. If a package fails because its install script did not run
+  (native modules built with node-gyp), name it and ask the user before
+  running `npm rebuild PACKAGE --ignore-scripts=false`. If an urgent security
+  fix is newer than 7 days, `npm audit fix` warns about it; tell the user.
+- Rust: there is no stable cooldown in Cargo, and `build.rs` scripts and
+  procedural macros always run during a build. Build with `--locked`, update
+  single crates on purpose (`cargo update -p CRATE`) instead of everything,
+  and run `cargo audit` (and `cargo deny check` if the project has a
+  `deny.toml`) after changing dependencies.
+- Double-check the exact name of every new package or crate before adding it;
+  look-alike names (typosquatting) are a common attack.
 
 ## Browsers
 

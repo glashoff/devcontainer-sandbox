@@ -1,0 +1,16 @@
+# npm defaults for every project in the sandbox, installed as /etc/npmrc
+# (NPM_CONFIG_GLOBALCONFIG in the Dockerfile). They are the lowest-priority
+# npm settings: a project's .npmrc or a command-line flag overrides them.
+
+# Only install versions published at least 7 days ago. Hijacked releases are
+# usually found and unpublished within hours or days, so most of them never
+# reach a project. A security fix that is newer than that can be let through
+# per package with min-release-age-exclude, or once with --min-release-age=0.
+min-release-age=7
+
+# Do not run the install scripts (preinstall, install, postinstall, prepare)
+# of dependencies: they are the usual way malware in a package gets to run.
+# A package that really needs one (a native module built with node-gyp, say)
+# can be built on purpose after reviewing it:
+#   npm rebuild PACKAGE --ignore-scripts=false
+ignore-scripts=true

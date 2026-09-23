@@ -36,6 +36,13 @@ RUN git clone https://github.com/nvm-sh/nvm.git "$NVM_DIR" \
       && ln -sfn "$NVM_DIR/versions/node/$(nvm version default)" "$NVM_DIR/current"' \
  && chown -R vscode:vscode "$NVM_DIR"
 
+# npm defaults against hijacked packages: a 7-day cooldown for new releases and
+# no install scripts from dependencies (see the file). Outside the nvm
+# directory, so that a new Node version in the daily update layer keeps them.
+# They apply from here on, so Playwright below is installed with them as well.
+COPY npmrc /etc/npmrc
+ENV NPM_CONFIG_GLOBALCONFIG=/etc/npmrc
+
 # Browsers for Playwright, so that nothing has to be downloaded at run time.
 # Playwright pins one browser revision per release (its browsers.json) and
 # refuses to start anything else, so the browsers are installed by the same
@@ -65,3 +72,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --no-modify-path --profile minimal \
           --default-toolchain stable -c rustfmt -c clippy \
  && chown -R vscode:vscode "$RUSTUP_HOME" "$CARGO_HOME"
+
+# Checks of a project's crates: cargo-audit against the RustSec advisory
+# database, cargo-deny for advisories, licenses and allowed sources. Built
+# from source with their own lockfiles; the registry cache is dropped again.
+RUN cargo install --locked cargo-audit cargo-deny \
+ && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" \
+ && chown -R vscode:vscode "$CARGO_HOME"
