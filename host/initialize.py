@@ -14,6 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import CONFIG_DIR, read_config  # noqa: E402
+from deploy_key import (CONTAINER_KEY, CONTAINER_KNOWN_HOSTS,  # noqa: E402
+                        deploy_repo, key_file)
+from remote import REMOTE_SETTING  # noqa: E402
 
 home = Path.home()
 workspace = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
@@ -53,8 +56,8 @@ def project_settings() -> dict[str, str]:
 
 
 # Just enough git configuration to commit inside the container, and to fetch
-# public GitHub repositories. Credential helpers are never taken along:
-# pushing and private repositories stay a job for the host.
+# from GitHub. Credential helpers are never taken along: pushing stays a job
+# for the host.
 #
 # SSH needs a key even for a public repository, so GitHub remotes written as
 # git@github.com:... are fetched over HTTPS instead, which needs none. The
@@ -80,5 +83,23 @@ lines = ["# Written by the host (initialize.py of devcontainer-sandbox) and",
          "\tinsteadOf = ssh://git@github.com/"]
 if name and email:
     lines += ["[user]", f"\tname = {name}", f"\temail = {email}"]
+
+# The project's own repository (GIT_REMOTE_URL in sandbox.env) goes over SSH
+# instead, with its read-only deploy key (deploy_key.py), once
+# devcontainer-start has registered one. The longer insteadOf wins over the
+# HTTPS rewrite above. Only forms ending in .git besides the configured one,
+# since a shorter prefix would also catch owner/repo-other.
+repo = deploy_repo(settings)
+if repo and key_file(workspace, repo).is_file():
+    forms = dict.fromkeys([settings[REMOTE_SETTING],
+                           f"git@github.com:{repo}.git",
+                           f"ssh://git@github.com/{repo}.git",
+                           f"https://github.com/{repo}.git"])
+    lines += [f'[url "git@github.com:{repo}.git"]']
+    lines += [f"\tinsteadOf = {form}" for form in forms]
+    lines += ["[core]",
+              f"\tsshCommand = ssh -i {CONTAINER_KEY} -o IdentitiesOnly=yes"
+              f" -o UserKnownHostsFile={CONTAINER_KNOWN_HOSTS}"
+              " -o StrictHostKeyChecking=yes"]
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 (CONFIG_DIR / f"gitconfig-{workspace.name}").write_text("\n".join(lines) + "\n")

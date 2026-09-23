@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from devcontainer_cli import DOCKER, Cli, die, docker_value  # noqa: E402
+from deploy_key import (CONTAINER_KEY, CONTAINER_KNOWN_HOSTS,  # noqa: E402
+                        KEY_DIR, deploy_repo, key_file)
+from remote import (REMOTE_SETTING, github_repo, origin_mismatch,  # noqa: E402
+                    read_settings, recorded_origin, sandbox_env)
 
 CONTAINER_SSH_PORT = "2222"
 SSH_KEY = Path(os.environ.get("DEVCONTAINER_SSH_KEY")
@@ -82,18 +87,6 @@ def load_jsonc(path):
     return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
 
 
-def read_settings(path):
-    """Reads .devcontainer/sandbox.env as KEY=VALUE. Parsed, never executed."""
-    settings = {}
-    if not path.is_file():
-        return settings
-    for line in path.read_text().splitlines():
-        match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)=([^\s#]*)", line)
-        if match:
-            settings[match.group(1)] = match.group(2)
-    return settings
-
-
 def watched_image(config_file):
     """The image whose updates should recreate the container.
 
@@ -148,6 +141,109 @@ def write_ssh_config(rest, block):
     SSH_CONFIG.write_text(f"{rest}\n\n{block}\n" if rest else f"{block}\n")
 
 
+def in_container(container_id, remote_user, script, stdin=None, capture=False):
+    """Runs a shell script in the container as the remote user."""
+    return subprocess.run(
+        [DOCKER, "exec", "-i", "-u", remote_user, container_id, "sh", "-c", script],
+        input=stdin, text=True, check=True,
+        stdout=subprocess.PIPE if capture else None).stdout
+
+
+def gh(*args):
+    """Runs the GitHub CLI on the host. Returns stdout, or None on failure."""
+    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        return None
+    return result.stdout
+
+
+def ensure_deploy_key(workspace, settings):
+    """Registers the project's read-only GitHub deploy key, if it has none yet.
+
+    Runs before initialize.py, which points the container's gitconfig at the
+    key as soon as the key file exists. So a key that could not be registered
+    is never written; the container then fetches over HTTPS, which works for
+    public repositories. See deploy_key.py.
+    """
+    remote = settings.get(REMOTE_SETTING)
+    if not remote:
+        if github_repo(recorded_origin(workspace)):
+            print(f"Note: to fetch this project's repository with a deploy key, "
+                  f"name it in .devcontainer/sandbox.env: "
+                  f"{REMOTE_SETTING}={recorded_origin(workspace)}")
+        return
+    mismatch = origin_mismatch(workspace, remote)
+    if mismatch:
+        print(f"Warning: {mismatch}. Changed from inside the container?",
+              file=sys.stderr)
+    repo = deploy_repo(settings)
+    if not repo:
+        return
+    hint = (f"the container fetches {repo} over HTTPS (public repositories only). "
+            "GIT_DEPLOY_KEY=no in .devcontainer/sandbox.env stops trying.")
+    if not shutil.which("gh"):
+        print(f"Warning: no gh on the host to add a deploy key; {hint}",
+              file=sys.stderr)
+        return
+
+    key = key_file(workspace, repo)
+    if key.is_file():
+        public = " ".join(key.with_name(key.name + ".pub").read_text().split()[:2])
+        listed = gh("api", "--paginate", f"repos/{repo}/keys", "--jq", ".[].key")
+        if listed is None:
+            print(f"Warning: cannot check the deploy key of {repo}", file=sys.stderr)
+            return
+        if public in listed.splitlines():
+            return
+        print(f"The deploy key of {repo} was deleted on GitHub, adding it again")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        new_key = Path(tmp) / key.name
+        if not key.is_file():
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+                            "-C", f"devcontainer-{workspace.name}", "-f", str(new_key)],
+                           check=True)
+        source = key if key.is_file() else new_key
+        public = source.with_name(source.name + ".pub").read_text().strip()
+        title = f"devcontainer-sandbox: {workspace.name} on {socket.gethostname()}"
+        if gh("api", "-X", "POST", f"repos/{repo}/keys", "-f", f"title={title}",
+              "-f", f"key={public}", "-F", "read_only=true") is None:
+            print(f"Warning: cannot add a deploy key to {repo} (it needs admin "
+                  f"rights on the repository); {hint}", file=sys.stderr)
+            return
+        if source == new_key:
+            KEY_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+            for suffix in ("", ".pub"):
+                shutil.move(f"{new_key}{suffix}", f"{key}{suffix}")
+    print(f"Added a read-only deploy key to {repo}")
+
+
+def install_deploy_key(workspace, settings, container_id, remote_user):
+    """Copies the deploy key and GitHub's host keys into the container.
+
+    Like the server certificate, they live in the container's ~/.ssh, so this
+    runs on every start. Without a key, a copy from earlier is removed.
+    """
+    repo = deploy_repo(settings)
+    if not (repo and key_file(workspace, repo).is_file()):
+        in_container(container_id, remote_user,
+                     f"rm -f {CONTAINER_KEY} {CONTAINER_KNOWN_HOSTS}")
+        return
+    # GitHub publishes its host keys in the API, fetched here over HTTPS.
+    host_keys = gh("api", "meta", "--jq", ".ssh_keys[]")
+    if not host_keys:
+        print("Warning: cannot get GitHub's SSH host keys, "
+              "the container cannot fetch over SSH", file=sys.stderr)
+        return
+    known = "".join(f"github.com {line}\n" for line in host_keys.splitlines())
+    in_container(container_id, remote_user,
+                 f"umask 077 && mkdir -p ~/.ssh && cat > {CONTAINER_KEY}",
+                 stdin=key_file(workspace, repo).read_text())
+    in_container(container_id, remote_user,
+                 f"umask 077 && cat > {CONTAINER_KNOWN_HOSTS}", stdin=known)
+
+
 def sign_server_certificate(settings, container_id, remote_user, name):
     """Short-lived SSH access to a server (README "Server access").
 
@@ -176,13 +272,8 @@ def sign_server_certificate(settings, container_id, remote_user, name):
         die(f"No host key for {known_name} in ~/.ssh/known_hosts, "
             f"connect once from the host: ssh -p {port} {host}")
 
-    def in_container(script, stdin=None, capture=False):
-        return subprocess.run(
-            [DOCKER, "exec", "-i", "-u", remote_user, container_id, "sh", "-c", script],
-            input=stdin, text=True, check=True,
-            stdout=subprocess.PIPE if capture else None).stdout
-
     public_key = in_container(
+        container_id, remote_user,
         'umask 077 && mkdir -p ~/.ssh && rm -f ~/.ssh/sandbox_ed25519* && '
         'ssh-keygen -q -t ed25519 -N "" -C sandbox -f ~/.ssh/sandbox_ed25519 && '
         'cat ~/.ssh/sandbox_ed25519.pub', capture=True)
@@ -198,9 +289,12 @@ def sign_server_certificate(settings, container_id, remote_user, name):
              str(key_pub)], check=True)
         certificate = (Path(tmp) / "key-cert.pub").read_text()
 
-    in_container("umask 077 && cat > ~/.ssh/sandbox_ed25519-cert.pub", stdin=certificate)
-    in_container("umask 077 && cat > ~/.ssh/known_hosts", stdin=known + "\n")
-    in_container("umask 077 && cat > ~/.ssh/config", stdin=f"""\
+    in_container(container_id, remote_user,
+                 "umask 077 && cat > ~/.ssh/sandbox_ed25519-cert.pub", stdin=certificate)
+    in_container(container_id, remote_user,
+                 "umask 077 && cat > ~/.ssh/known_hosts", stdin=known + "\n")
+    in_container(container_id, remote_user,
+                 "umask 077 && cat > ~/.ssh/config", stdin=f"""\
 # Managed by devcontainer-start, rewritten on every start.
 Host {alias}
     HostName {host}
@@ -285,6 +379,9 @@ def main():
     digest = hashlib.sha256(str(workspace).encode()).hexdigest()[:6]
     ssh_host = f"devcontainer-{name}-{digest}"
 
+    settings = read_settings(sandbox_env(workspace))
+    ensure_deploy_key(workspace, settings)
+
     # Create bind-mount sources on the host. The same script also runs as
     # initializeCommand, but inside the CLI container ssh-keygen may not work.
     script_dir = Path(__file__).resolve().parent
@@ -340,7 +437,7 @@ def main():
 
     grant_device_groups(container_id, remote_user)
 
-    settings = read_settings(workspace / ".devcontainer/sandbox.env")
+    install_deploy_key(workspace, settings, container_id, remote_user)
     if settings.get("SERVER_SSH_HOST"):
         sign_server_certificate(settings, container_id, remote_user, name)
 

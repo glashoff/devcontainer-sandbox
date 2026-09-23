@@ -28,6 +28,7 @@ never leaves the machine.
 - [Browsers](#browsers)
 - [Wayland](#wayland) · [Audio](#audio) · [GPU](#gpu)
 - [Server access](#server-access)
+- [Fetching from GitHub](#fetching-from-github)
 - [Rolling back](#rolling-back)
 - [Verify the sandbox](#verify-the-sandbox)
 - [Repository layout](#repository-layout)
@@ -48,7 +49,7 @@ from the host.
 | `sudo` / becoming root | blocked |
 | Host home directory, `~/.ssh`, host `~/.claude` | not mounted (except `~/.claude/CLAUDE.md` and `~/.ssh/devcontainer_ed25519.pub`, read-only) |
 | Host SSH agent | not forwarded (refused by sshd, removed on attach if it gets in anyway) |
-| Host git credentials | not forwarded; containers can fetch public GitHub repositories, but not push or reach private ones |
+| Host git credentials | not forwarded; containers can fetch from GitHub, but not push ([Fetching from GitHub](#fetching-from-github)) |
 | git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup-in-detail)) |
 | `.devcontainer/` of the project | read-only |
 | Project folder | read-write |
@@ -68,7 +69,8 @@ Worth reading before trusting it with anything:
   GPU and desktop.
 - **The project folder is writable**, including git hooks, `Makefile`s and
   scripts that run later **on the host**. Review what comes out of a container
-  before running it outside.
+  before running it outside. A `git push` on the host runs the hooks and the
+  `.git/config` of the project, so the same applies to pushing.
 - **Anything enabled per project widens it.** A Wayland socket allows fake
   windows and clipboard access, an audio socket allows recording the
   microphone, a GPU device is a large kernel attack surface, and server access
@@ -217,14 +219,8 @@ Committing needs a name and an email address. [initialize.py](host/initialize.py
 writes one gitconfig per project to
 `~/.config/devcontainer-sandbox/gitconfig-<project>` before every start, and the
 project mounts it read-only as `~/.gitconfig`. Credential helpers are never
-copied: pushing and private repositories stay a job for the host.
-
-Public GitHub repositories can be fetched and pulled inside the container.
-HTTPS needs no credentials for them, but SSH needs a key even there, so the
-gitconfig rewrites `git@github.com:` and `ssh://git@github.com/` to
-`https://github.com/`. The project's `.git/config` is shared with the host and
-keeps its SSH remote; only the container sees the rewrite. A `git push` from
-the container fails for lack of credentials.
+copied: pushing stays a job for the host. The same file also sets up fetching
+from GitHub ([Fetching from GitHub](#fetching-from-github)).
 
 The identity is taken from the first of these that has one, so a project can
 commit under a different name than the host:
@@ -288,7 +284,8 @@ devcontainer-start ~/Projects/NAME
 `Host devcontainer-<name>-<hash>` block to `~/.ssh/config`.
 
 Each project gets its own container, SSH entry and volumes; they can run side by
-side. Containers can fetch public GitHub repositories, nothing else.
+side. Containers can fetch from GitHub, but not push
+([Fetching from GitHub](#fetching-from-github)).
 
 ## Adding a tool
 
@@ -552,6 +549,59 @@ run `devcontainer-start` again; it replaces key and certificate even if the
 container is still running. Starting the container any other way (e.g. VS Code
 "Reopen in Container") creates no certificate.
 
+## Fetching from GitHub
+
+Inside a container, `git fetch` and `git pull` work for GitHub; `git push`
+does not. Pushing stays a job for the host.
+
+**Which repository belongs to the project** is written in
+`.devcontainer/sandbox.env`, which the container cannot change:
+
+```sh
+GIT_REMOTE_URL=git@github.com:owner/repo.git
+```
+
+The deploy key below goes by this, never by `origin` in `.git/config`. The
+container can rewrite `.git/config`, and if the host trusted it, a container
+could point `origin` at another, private repository of yours and get a deploy
+key for that one on the next start. If the two differ, `devcontainer-start`
+warns and names both.
+
+**The project's own repository.** When `GIT_REMOTE_URL` is a GitHub
+repository, `devcontainer-start` gives the project a deploy key of its own: an
+SSH key pair created on the host in
+`~/.config/devcontainer-sandbox/deploy-keys/github-<project>-<owner>--<repo>`
+and registered **read-only** with that one repository through the host's `gh`.
+That needs `gh auth login` with the `repo` scope and admin rights on the
+repository. On every start it checks that the key is still registered, adds it
+again if it was deleted on GitHub, and copies the private key and GitHub's host
+keys (from `gh api meta`) into the container's `~/.ssh`. The container's
+gitconfig sends that repository over SSH with the key, so this works for private
+repositories as well. A push is refused by GitHub: `The key you are
+authenticating with has been marked as read only`.
+
+If the key cannot be added (no `gh`, no admin rights, someone else's
+repository), `devcontainer-start` warns and goes on, and the container fetches
+over HTTPS as below. To stop it trying, set this in `.devcontainer/sandbox.env`:
+
+```sh
+GIT_DEPLOY_KEY=no
+```
+
+The key does not expire. Anything that runs in the container can copy it and
+read the repository for as long as the key is registered, which matters for a
+private repository. To revoke it, delete it on GitHub (Settings → Deploy keys,
+or `gh repo deploy-key list` and `gh repo deploy-key delete`) together with
+`~/.config/devcontainer-sandbox/deploy-keys/github-<project>-*`; the next start
+creates a new one unless `GIT_DEPLOY_KEY=no`. Starting the container any other
+way (e.g. VS Code "Reopen in Container") copies no key.
+
+**Other public repositories.** HTTPS needs no credentials for them, but SSH
+needs a key even there, so the container's gitconfig rewrites `git@github.com:`
+and `ssh://git@github.com/` to `https://github.com/`, except for the project's
+own repository. The project's `.git/config` is shared with the host and stays as
+it is; only the container sees the rewrite.
+
 ## Rolling back
 
 If a build breaks something, point the project at the previous build,
@@ -589,6 +639,8 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/devcontainer-build-image.timer](host/devcontainer-build-image.timer) | runs the build daily |
 | [host/build-finished.py](host/build-finished.py) | desktop notification and mail when a build finished |
 | [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
+| [host/deploy_key.py](host/deploy_key.py) | the read-only GitHub deploy key of a project |
+| [host/remote.py](host/remote.py) | the repository a project belongs to (`GIT_REMOTE_URL`), and its comparison with `.git/config` |
 | [host/initialize.py](host/initialize.py) | creates the bind-mount sources on the host (`CLAUDE.md`, SSH key) |
 | [host/devcontainer_cli.py](host/devcontainer_cli.py) | runs the devcontainer CLI (shared by the scripts) |
 | [template/.devcontainer/](template/.devcontainer/) | starting point for a project: `devcontainer.json`, `sandbox.env` |

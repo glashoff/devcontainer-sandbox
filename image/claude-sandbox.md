@@ -9,10 +9,10 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
   missing permanently, tell the user; it has to be added to the image
   (devcontainer-sandbox, `image/.devcontainer/`) on the host.
 - Internet only: local networks (LAN, the Docker host) are blocked.
-- No credentials for remote git repositories: `git fetch` and `git pull` work
-  for public GitHub repositories (SSH remotes are rewritten to HTTPS), but do
-  not try to push or to fetch private repositories; the user does that on the
-  host.
+- Git remotes are read-only: `git fetch` and `git pull` work for the
+  project's own GitHub repository (read-only deploy key, private ones too) and
+  for public GitHub repositories. Do not try to push; the user does that on
+  the host. There are no credentials for other git hosts.
 - The container is recreated after every image update (usually daily). Only
   the project folder (`/workspaces/<project>`) and `~/.claude` survive;
   anything installed or written elsewhere is lost.
@@ -27,7 +27,7 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 | Rust (stable), cargo, rustfmt, clippy | `/usr/local/cargo/bin`, toolchains in `/usr/local/rustup` |
 | gcc, g++, make (`build-essential`), gdb, cmake, ninja, pkg-config | `/usr/bin` |
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
-| GitHub CLI `gh`, git | `/usr/bin` (not logged in; git has a name and email, but no credentials; public GitHub repositories can be fetched) |
+| GitHub CLI `gh`, git | `/usr/bin` (`gh` not logged in; git has a name and email, and can fetch from GitHub but not push) |
 | Chromium and Firefox for Playwright | `/usr/local/share/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`) |
 | Wayland client libraries, Mesa (OpenGL/Vulkan) | system |
 
