@@ -79,3 +79,33 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 RUN cargo install --locked cargo-audit cargo-deny \
  && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" \
  && chown -R vscode:vscode "$CARGO_HOME"
+
+# Go, installed here instead of via ghcr.io/devcontainers/features/go:1, for
+# the same reason as Rust: that feature adds "capAdd": ["SYS_PTRACE"] and
+# "securityOpt": ["seccomp=unconfined"], which would turn off Docker's seccomp
+# filter for every project using this image. The paths are the feature's
+# (GOROOT, GOPATH), so everything that expects them keeps working.
+#
+# The current release is picked at build time, so the weekly rebuild moves Go
+# forward by itself. Its checksum is published beside the archive and checked
+# here; GOPATH belongs to the user, so "go install" needs no root.
+ENV GOROOT=/usr/local/go \
+    GOPATH=/go \
+    PATH=/usr/local/go/bin:/go/bin:$PATH
+RUN version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)" \
+ && archive="${version}.linux-$(dpkg --print-architecture).tar.gz" \
+ && curl -fsSLO "https://dl.google.com/go/${archive}" \
+ && curl -fsSL "https://dl.google.com/go/${archive}.sha256" \
+      | sed "s|\$|  ${archive}|" | sha256sum -c - \
+ && tar -C /usr/local -xzf "${archive}" \
+ && rm "${archive}" \
+ && mkdir -p "$GOPATH/bin" \
+ && chown -R vscode:vscode "$GOPATH"
+
+# Checks of a project's modules: govulncheck reports the known vulnerabilities
+# that a build actually reaches, from the Go vulnerability database. Go needs
+# no cooldown setting of its own (README "Dependencies"): the checksum
+# database is on by default, and modules run no install scripts.
+RUN go install golang.org/x/vuln/cmd/govulncheck@latest \
+ && rm -rf "$GOPATH/pkg" /root/.cache/go-build \
+ && chown -R vscode:vscode "$GOPATH"

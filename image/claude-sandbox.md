@@ -26,6 +26,8 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 | Python 3 (Debian), pip, venv | `/usr/bin/python3` |
 | Rust (stable), cargo, rustfmt, clippy | `/usr/local/cargo/bin`, toolchains in `/usr/local/rustup` |
 | cargo-audit, cargo-deny | `/usr/local/cargo/bin` |
+| Go (current release), gofmt, go vet | `/usr/local/go/bin`, `GOPATH=/go` |
+| govulncheck | `/go/bin` |
 | gcc, g++, make (`build-essential`), gdb, cmake, ninja, pkg-config | `/usr/bin` |
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
 | GitHub CLI `gh`, git | `/usr/bin` (`gh` not logged in; git has a name and email, and can fetch from GitHub but not push) |
@@ -39,6 +41,8 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
   environment in the project: `python3 -m venv .venv`.
 - Rust: crates via `Cargo.toml`. `cargo install` works but lands in
   `/usr/local/cargo/bin` and is lost on the next recreation.
+- Go: modules via `go.mod`. `go install` lands in `/go/bin` and is lost on the
+  next recreation as well.
 
 ## Supply chain defaults
 
@@ -56,8 +60,11 @@ defaults against them. Do not switch them off on your own; ask the user.
   single crates on purpose (`cargo update -p CRATE`) instead of everything,
   and run `cargo audit` (and `cargo deny check` if the project has a
   `deny.toml`) after changing dependencies.
-- Double-check the exact name of every new package or crate before adding it;
-  look-alike names (typosquatting) are a common attack.
+- Go: modules run no install scripts and the checksum database is on, so
+  there is nothing to switch off. Run `govulncheck ./...` after changing
+  dependencies and report what it finds.
+- Double-check the exact name of every new package, crate or module before
+  adding it; look-alike names (typosquatting) are a common attack.
 
 ## Protected files
 

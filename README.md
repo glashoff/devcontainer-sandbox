@@ -21,7 +21,7 @@ never leaves the machine.
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Tools in the image](#tools-in-the-image)
-- [Dependencies: npm and Cargo defaults](#dependencies-npm-and-cargo-defaults)
+- [Dependencies and their defaults](#dependencies-and-their-defaults)
 - [How updates work](#how-updates-work)
 - [Host setup in detail](#host-setup-in-detail)
 - [Starting a project](#starting-a-project)
@@ -144,6 +144,7 @@ once.
   LLVM, lld, gdb, cmake, ninja
 - Rust: rustup with the current stable toolchain, rustfmt, clippy,
   cargo-audit, cargo-deny
+- Go: current release, gofmt, go vet, govulncheck
 - Chromium and Firefox for Playwright, ready to use ([Browsers](#browsers))
 - Wayland client libraries, Mesa (OpenGL/Vulkan, software rendering without GPU)
 
@@ -154,7 +155,7 @@ Per project, in Docker volumes that survive rebuilds: the Claude Code login
 The list is one person's toolbox, and editing it is expected — see
 [Adding a tool](#adding-a-tool).
 
-## Dependencies: npm and Cargo defaults
+## Dependencies and their defaults
 
 The sandbox limits what a hijacked package can reach; these defaults make it
 less likely that one gets installed at all. Popular packages are hijacked now
@@ -180,6 +181,12 @@ is exempt, the daily build installs its newest release.
 only), and build scripts and procedural macros cannot be switched off. The
 image adds `cargo-audit` and `cargo-deny` instead; build with `--locked` and
 update crates one at a time. Here, the container is the main protection.
+
+**Go** needs least of all: modules run no install scripts, and the checksum
+database (`sum.golang.org`) is consulted by default, so a module that changed
+under an existing version is refused. There is no cooldown either; `govulncheck`
+is in the image for what is already known, and it reports only the
+vulnerabilities a build actually reaches.
 
 ## How updates work
 
