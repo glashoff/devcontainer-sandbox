@@ -59,6 +59,25 @@ defaults against them. Do not switch them off on your own; ask the user.
 - Double-check the exact name of every new package or crate before adding it;
   look-alike names (typosquatting) are a common attack.
 
+## Protected files
+
+Some of a project's files are mounted read-only: writing to them fails, and
+that is deliberate, not a broken permission. Do not work around it.
+
+- Propose the change instead: the same path under `protected_draft/`, for
+  example `protected_draft/Makefile`. Edit the copy that is already there.
+- To remove a file or a directory, create a marker beside where it sits in
+  the draft: `protected_draft/protected/old.md.delete` removes
+  `protected/old.md`, and `protected_draft/protected/legacy.delete` removes
+  that whole directory. Write the reason into the marker; it is shown to the
+  user. **Deleting a file from the draft removes nothing** — it only
+  withdraws your proposal, and the file comes back on the next start.
+- Nothing takes effect until the user runs `devcontainer-approve` on the
+  host, reads the diff and accepts it. Say so when you are done, instead of
+  assuming the change is in place.
+- Never commit `protected_draft/`. It carries a `.gitignore` of its own, and
+  a push that contains it is refused.
+
 ## Browsers
 
 Chromium and Firefox are already installed, so do not download anything:

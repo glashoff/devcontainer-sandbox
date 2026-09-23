@@ -842,11 +842,31 @@ deleting, renaming the mount point and unmounting are all refused, and
 list lives nowhere else — the mounts *are* the list.
 
 **The container proposes instead of changing.** Next to the project it has
-`protected_draft/`, which mirrors the protected paths and is writable:
-`protected_draft/Makefile`, `protected_draft/.devcontainer/devcontainer.json`.
-On every `devcontainer-start` the host refreshes the draft files nobody
-edited, file by file, so the container works from what the host has now. A
-draft file the container has changed is left alone.
+`protected_draft/`, writable, holding a copy of each protected path at the
+same place: `protected_draft/Makefile`,
+`protected_draft/.devcontainer/devcontainer.json`. It edits the copy. On every
+`devcontainer-start` the host writes the draft files nobody edited again from
+the protected ones, file by file, so the container works from what the host
+has now; a draft file it has changed is left alone.
+
+**A draft never replaces a directory as a whole**, at any depth. A file
+missing from the draft proposes nothing — deleting a draft file is how a
+proposal is withdrawn, and the file is written again on the next start.
+Removing something is a separate, visible act: a marker named after it,
+beside where it sits in the draft.
+
+```sh
+protected_draft/protected/old-rules.md.delete    # removes protected/old-rules.md
+protected_draft/protected/legacy.delete          # removes protected/legacy/, with everything in it
+```
+
+Whatever the marker contains is shown as the reason for the deletion. A
+directory marker is listed file by file in the diff, because removing a tree
+is something to see rather than to read about. A marker that points at
+nothing stops the command instead of doing nothing quietly, since that is
+how a typo would hide a deletion that did not happen. The protected path
+itself cannot be removed this way: it is a mount source, and the mount would
+have nothing left to point at.
 
 **The host applies it**, after reading what it says:
 
@@ -863,11 +883,17 @@ under `.devcontainer/`, naming the keys it found (`privileged`, `runArgs`,
 link is refused rather than copied, so a link out of the tree cannot make the
 host write elsewhere.
 
+Once something has been applied, the draft starts over from the files as
+they now are: nothing in it is pending any more, and leaving the copies
+there would propose all of them a second time.
+
 **When both sides changed** the same file — you on the host, the container in
 its draft — it stops and names the files instead of guessing, like a merge
-conflict. What the last approved state was is remembered in
-`~/.local/state/devcontainer-sandbox/`; without that, a file you added on the
-host would look like one the container wants deleted.
+conflict. Put what should stand into the draft, or take the marker out if the
+deletion should not happen, and run it again; a draft file that matches the
+protected one is the sign that somebody has decided. What the last approved
+state was is remembered in `~/.local/state/devcontainer-sandbox/`, which is
+what tells a change of yours apart from one of the container's.
 
 **The draft never enters the repository.** It carries a `.gitignore` of its
 own that ignores everything in it, and `devcontainer-push` refuses a push

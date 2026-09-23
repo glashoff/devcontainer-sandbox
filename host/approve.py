@@ -21,8 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from devcontainer_cli import die  # noqa: E402
-from protected import (DRAFT_DIR, protected_paths, read_state,  # noqa: E402
-                       sync_draft, tree_state, write_state)
+from protected import (DELETE_SUFFIX, DRAFT_DIR,  # noqa: E402
+                       protected_paths, read_state, reset_draft, sync_draft,
+                       tree_state)
 
 # A protected file is configuration, a rule, a script. Anything of this size
 # is worth a second look before it is copied over.
@@ -62,40 +63,83 @@ def show_diff(old, new, label):
         print(f"  ... and {len(lines) - DIFF_LINES} more diff lines")
 
 
+def deletions(marker, current):
+    """What a NAME.delete marker asks to remove, as paths inside the protected
+    path. A marker for a directory names every file under it, one by one:
+    deleting a tree is something to see, not to read about."""
+    target = marker[:-len(DELETE_SUFFIX)]
+    if not target:
+        # A bare ".delete" would ask for the protected path itself, which is
+        # a mount source: without it the mount has nothing to point at.
+        return []
+    if target in current:
+        return [target]
+    return sorted(inside for inside in current
+                  if inside.startswith(target + "/"))
+
+
 def collect(workspace, relative, approved):
     """Compares one protected path with its draft.
 
-    Returns (changes, conflicts). A change is (inside, kind, mode), where
-    "inside" is the path within the protected path ("" for a single file).
+    Returns (changes, conflicts, stray). A change is (inside, kind, mode),
+    where "inside" is the path within the protected path ("" for a single
+    file). "stray" are deletion markers with nothing to delete.
+
+    A file missing from the draft is not a deletion; only a NAME.delete
+    marker is. A draft that lost a file through a mishap would otherwise
+    propose throwing the original away, and it would read like nothing.
     """
     source = workspace / relative
     draft = workspace / DRAFT_DIR / relative
     if not draft.exists():
-        return [], []
+        return [], [], []
     current = tree_state(source) if source.exists() else {}
-    proposed = tree_state(draft)
+    drafted = tree_state(draft)
+    proposed = {inside: state for inside, state in drafted.items()
+                if not inside.endswith(DELETE_SUFFIX)}
     was = approved.get(relative, {})
-    changes, conflicts = [], []
-    for inside in sorted(set(current) | set(proposed) | set(was)):
+    changes, conflicts, stray = [], [], []
+
+    removing = {}
+    for marker in sorted(inside for inside in drafted
+                         if inside.endswith(DELETE_SUFFIX)):
+        targets = deletions(marker, current)
+        if not targets:
+            stray.append(marker)
+        for inside in targets:
+            removing[inside] = marker
+
+    for inside in sorted(set(proposed) | set(removing)):
+        if inside in removing:
+            # Removing something the host changed since the last approval is
+            # the same collision as two edits, and is decided the same way.
+            if current.get(inside) != was.get(inside):
+                conflicts.append(inside)
+            else:
+                changes.append((inside, "deleted", current[inside][1]))
+            continue
         if current.get(inside) == proposed.get(inside):
             continue
         # Only what the container changed against the last approved state is
-        # a proposal. A file it never had in its draft is not a deletion, and
-        # one it left alone is not a proposal to undo what the host did.
+        # a proposal; a draft it left alone must not undo what the host did.
         if proposed.get(inside) == was.get(inside):
             continue
-        # Both sides moved: that cannot be decided here, and guessing loses
-        # one of them.
         if current.get(inside) != was.get(inside):
             conflicts.append(inside)
             continue
-        if inside not in current:
-            changes.append((inside, "new", proposed[inside][1]))
-        elif inside not in proposed:
-            changes.append((inside, "deleted", current[inside][1]))
-        else:
-            changes.append((inside, "changed", proposed[inside][1]))
-    return changes, conflicts
+        changes.append((inside, "new" if inside not in current else "changed",
+                        proposed[inside][1]))
+    return changes, conflicts, stray
+
+
+def marker_reason(draft, inside):
+    """Whatever the marker that asks for this deletion says, if anything."""
+    markers = sorted(draft.rglob("*" + DELETE_SUFFIX)) if draft.is_dir() else []
+    for marker in markers:
+        target = str(marker.relative_to(draft))[:-len(DELETE_SUFFIX)]
+        if target == inside or inside.startswith(target + "/"):
+            return " ".join(marker.read_text().split())[:80]
+    return ""
 
 
 def warn_about(workspace, relative, changes, approved):
@@ -114,7 +158,9 @@ def warn_about(workspace, relative, changes, approved):
                 + (f", and it names {', '.join(keys)}" if keys else "")
                 + ' (README "Rules when changing it")')
         if kind == "deleted":
-            warnings.append(f"deletes {shown}")
+            reason = marker_reason(draft, inside)
+            warnings.append(f"deletes {shown}"
+                            + (f" (the marker says: {reason})" if reason else ""))
             continue
         before = approved.get(relative, {}).get(inside)
         if mode & 0o111 and not (before and before[1] & 0o111):
@@ -124,6 +170,20 @@ def warn_about(workspace, relative, changes, approved):
         if file.is_file() and file.stat().st_size >= LARGE_FILE_BYTES:
             warnings.append(f"{shown} is {file.stat().st_size // 1024} KB")
     return warnings
+
+
+def clear_markers(source, draft):
+    """Removes the deletion markers that have done their work, and the
+    directories they emptied. A marker left behind would ask for the same
+    thing again on the next run, with nothing left to remove."""
+    if not draft.is_dir():
+        return
+    for marker in sorted(draft.rglob("*" + DELETE_SUFFIX)):
+        target = source / str(marker.relative_to(draft))[:-len(DELETE_SUFFIX)]
+        if target.is_dir() and not any(p.is_file() for p in target.rglob("*")):
+            shutil.rmtree(target)
+        if not target.exists():
+            marker.unlink()
 
 
 def apply(workspace, relative, changes):
@@ -144,6 +204,7 @@ def apply(workspace, relative, changes):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, target)
         shutil.copymode(origin, target)
+    clear_markers(source, draft)
 
 
 def main():
@@ -173,22 +234,34 @@ def main():
         print(f"Refreshed the draft of {', '.join(refreshed)} from the host")
 
     approved = read_state(workspace)
-    everything, conflicting = {}, {}
+    everything, conflicting, strays = {}, {}, {}
     for relative in paths:
-        changes, conflicts = collect(workspace, relative, approved)
+        changes, conflicts, stray = collect(workspace, relative, approved)
         if changes:
             everything[relative] = changes
         if conflicts:
             conflicting[relative] = conflicts
+        if stray:
+            strays[relative] = stray
 
+    if strays:
+        print("Deletion markers with nothing to delete:\n")
+        for relative, markers in strays.items():
+            for marker in markers:
+                print(f"  {DRAFT_DIR}/{relative}/{marker}")
+        die(f"\nA marker is named NAME{DELETE_SUFFIX} and sits beside where "
+            "the file or directory it removes would be in the draft. One that "
+            "points at nothing is a mistake, not an empty change: correct it "
+            "or take it out, then run this again.")
     if conflicting:
         print("Changed on the host and in the draft, which cannot be decided "
               "here:\n")
         for relative, conflicts in conflicting.items():
             for inside in conflicts:
                 print(f"  {relative}/{inside}" if inside else f"  {relative}")
-        die(f"\nCopy what you want to keep into {workspace}/{DRAFT_DIR} "
-            "yourself, then run this again.")
+        die(f"\nDecide it by hand: for a change, put what should stand into "
+            f"{workspace}/{DRAFT_DIR}; for a deletion, take the marker out if "
+            "what the host wrote should stay. Then run this again.")
     if not everything:
         print(f"Nothing to approve in {workspace}")
         return
@@ -219,11 +292,12 @@ def main():
 
     for relative, changes in everything.items():
         apply(workspace, relative, changes)
-        source = workspace / relative
-        approved[relative] = tree_state(source) if source.exists() else {}
-    write_state(workspace, approved)
-    print(f"Applied in {workspace}. The container sees it after the files are "
-          "read again; no restart is needed.")
+    # Nothing in the draft is pending any more, so it starts over from what
+    # the protected files now say.
+    reset_draft(workspace)
+    print(f"Applied in {workspace}, and {DRAFT_DIR}/ starts again from the "
+          "files as they are now. The container sees the change when it reads "
+          "them again; no restart is needed.")
 
 
 if __name__ == "__main__":

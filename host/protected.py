@@ -28,6 +28,10 @@ from config import STATE_DIR  # noqa: E402
 from devcontainer_cli import die, load_jsonc  # noqa: E402
 
 DRAFT_DIR = "protected_draft"
+# How a draft asks for something to be removed. Absence never means deletion:
+# a draft that lost a file through a mishap would otherwise propose throwing
+# the original away, and nobody would see it as anything but a missing line.
+DELETE_SUFFIX = ".delete"
 SANDBOX_DIR = ".devcontainer"
 WORKSPACE_PREFIX = "${localWorkspaceFolder}/"
 
@@ -142,13 +146,38 @@ def ignore_draft(workspace: Path) -> None:
                           "# protected files are not part of the history.\n*\n")
 
 
+def reset_draft(workspace: Path) -> None:
+    """Empties the draft and writes the protected files into it again.
+
+    After an approval nothing in it is pending any more. Leaving the copies
+    there would propose every one of them a second time, and a file that was
+    just deleted would come back as a new one on the very next run.
+    """
+    root = workspace / DRAFT_DIR
+    if root.is_dir():
+        for entry in sorted(root.iterdir()):
+            if entry.name == ".gitignore":
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+    write_state(workspace, {})
+    sync_draft(workspace)
+
+
 def sync_draft(workspace: Path) -> list[str]:
     """Brings the draft files nobody edited up to date with the protected ones.
 
     File by file, not whole trees: one file the container is still working on
     must not keep the rest of the draft in the past, or it would propose
     undoing what the host did in the meantime. A draft file that differs from
-    the last approved state is the container's own work and stays untouched.
+    the last approved state is the container's own work and stays untouched,
+    and so is a deletion marker, which has nothing to correspond to.
+
+    A draft file that is missing is written again from the protected one:
+    absence is never a proposal, so deleting a draft file is how one is
+    withdrawn.
     """
     approved = read_state(workspace)
     refreshed = []
@@ -169,10 +198,20 @@ def sync_draft(workspace: Path) -> list[str]:
         was = dict(approved.get(relative, {}))
         touched = False
         for inside in sorted(set(current) | set(have) | set(was)):
-            if have.get(inside) != was.get(inside):
-                continue                       # the container's own work
+            if inside.endswith(DELETE_SUFFIX):
+                continue                       # a marker, not a copy
             if have.get(inside) == current.get(inside):
+                # Draft and protected file say the same thing, so nothing is
+                # pending for it and this is what a later proposal is
+                # measured against. It is also how a conflict ends once
+                # somebody has decided it by hand.
+                if inside in current:
+                    was[inside] = current[inside]
+                else:
+                    was.pop(inside, None)
                 continue
+            if inside in have and have.get(inside) != was.get(inside):
+                continue                       # the container's own work
             here = (draft / inside) if inside else draft
             there = (source / inside) if inside else source
             if inside in current:
