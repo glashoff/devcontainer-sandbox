@@ -61,8 +61,10 @@ defaults against them. Do not switch them off on your own; ask the user.
 
 ## Protected files
 
-Some of a project's files are mounted read-only: writing to them fails, and
-that is deliberate, not a broken permission. Do not work around it.
+Some of a project's files are mounted read-only: writing to them fails with
+"Read-only file system", and that is deliberate, not a broken permission. Do
+not work around it. Which ones they are is in `.devcontainer/devcontainer.json`,
+as the mounts marked `readonly`.
 
 - Propose the change instead: copy the file to the same path under
   `protected_draft/` (`protected_draft/Makefile`) and edit it there. That
@@ -73,10 +75,12 @@ that is deliberate, not a broken permission. Do not work around it.
   `protected/old.md`, and `protected_draft/protected/legacy.delete` removes
   that whole directory. Write the reason into the marker; it is shown to the
   user. **Deleting a file from the draft removes nothing** — it only
-  withdraws your proposal, and the file comes back on the next start.
+  withdraws your proposal, and the protected file stays as it is.
 - Nothing takes effect until the user runs `devcontainer-approve` on the
   host, reads the diff and accepts it. Say so when you are done, instead of
-  assuming the change is in place.
+  assuming the change is in place. If the user changed the same file in the
+  meantime, that command stops and asks them to decide; copy the protected
+  file over your draft and make your change again if they say so.
 - Never commit `protected_draft/`. It carries a `.gitignore` of its own, and
   a push that contains it is refused.
 
