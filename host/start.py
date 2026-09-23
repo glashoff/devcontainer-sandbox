@@ -255,10 +255,17 @@ def sign_server_certificate(settings, container_id, remote_user, name):
     user = settings.get("SERVER_SSH_USER", "")
     port = settings.get("SERVER_SSH_PORT") or "22"
     alias = settings.get("SERVER_SSH_ALIAS") or "server"
+    force_command = settings.get("SERVER_SSH_FORCE_COMMAND", "").strip()
     # The values end up in the container's ssh config and the certificate.
     for value in (host, user, port, alias):
         if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
             die(f"Invalid or missing server setting: '{value}'")
+    # A command has spaces and slashes, so it cannot go through the check
+    # above. It is passed to ssh-keygen as a single argument, never to a
+    # shell, so only line breaks and control characters have to be refused.
+    if any(char in force_command for char in "\n\r") or any(
+            ord(char) < 32 or ord(char) == 127 for char in force_command):
+        die("SERVER_SSH_FORCE_COMMAND contains line breaks or control characters")
     if not SSH_CA.is_file():
         die(f'SSH CA key {SSH_CA} not found, see README "Server access"')
 
@@ -282,11 +289,19 @@ def sign_server_certificate(settings, container_id, remote_user, name):
         key_pub = Path(tmp) / "key.pub"
         key_pub.write_text(public_key)
         identity = f"devcontainer:{name}:{datetime.now():%Y-%m-%dT%H:%M}"
-        # -O clear: no port, agent or X11 forwarding; a terminal is still allowed.
+        # -O clear: no port, agent or X11 forwarding; a terminal is still
+        # allowed, unless a forced command makes it pointless. -O clear only
+        # drops extensions; force-command is a critical option and survives
+        # it, but it is written afterwards to make that obvious.
+        options = ["-O", "clear"]
+        if force_command:
+            options += ["-O", f"force-command={force_command}"]
+        else:
+            options += ["-O", "permit-pty"]
         subprocess.run(
             ["ssh-keygen", "-q", "-s", str(SSH_CA), "-I", identity, "-n", user,
-             "-V", f"-5m:+{CERTIFICATE_HOURS}h", "-O", "clear", "-O", "permit-pty",
-             str(key_pub)], check=True)
+             "-V", f"-5m:+{CERTIFICATE_HOURS}h", *options, str(key_pub)],
+            check=True)
         certificate = (Path(tmp) / "key-cert.pub").read_text()
 
     in_container(container_id, remote_user,
@@ -306,8 +321,9 @@ Host {alias}
     StrictHostKeyChecking yes
 """)
     until = datetime.now() + timedelta(hours=CERTIFICATE_HOURS)
-    print(f"Server access in the container: ssh {alias} ({user}@{host}), "
-          f"valid until {until:%Y-%m-%d %H:%M}")
+    runs = (f"runs '{force_command}'" if force_command else "gives a shell")
+    print(f"Server access in the container: ssh {alias} ({user}@{host}) "
+          f"{runs}, valid until {until:%Y-%m-%d %H:%M}")
 
 
 def grant_device_groups(container_id, remote_user):

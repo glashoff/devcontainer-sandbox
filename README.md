@@ -495,7 +495,8 @@ leaves the container, and nothing has to be added to or removed from the
 server's `authorized_keys`: expired certificates are simply rejected.
 
 Certificates carry no port, agent or X11 forwarding (`-O clear`), only a
-terminal.
+terminal — or not even that, see [One command instead of a
+shell](#one-command-instead-of-a-shell).
 
 ### Once per host and server
 
@@ -577,6 +578,39 @@ there). Inside the container: `ssh server`.
 run `devcontainer-start` again; it replaces key and certificate even if the
 container is still running. Starting the container any other way (e.g. VS Code
 "Reopen in Container") creates no certificate.
+
+### One command instead of a shell
+
+A project that has exactly one job on the server — uploading a built website,
+say — does not need a shell there. `SERVER_SSH_FORCE_COMMAND` puts that one
+command into the certificate, and the server runs it for every login on it, no
+matter what the container asks for:
+
+```sh
+SERVER_SSH_FORCE_COMMAND=/usr/bin/rrsync -wo /srv/www/example.com
+```
+
+The certificate then carries `force-command` and no `permit-pty`: a forced
+command needs no terminal. A `command="..."` entry in `authorized_keys` would
+not work here, because a certificate authenticates against the CA and sshd
+never looks at `authorized_keys` for it.
+
+**It can only narrow, never widen.** Which user a project may become at all is
+decided on the server, by `SERVER_PRINCIPAL_USERS` in the host config; without
+this setting that user gets a shell anyway. A project that writes nonsense here
+only locks itself out.
+
+**`ssh <alias>` is no longer interactive** with it, which for `rsync` is
+exactly the normal case: `rsync` runs its own remote command over the
+connection and never wanted a shell.
+
+Without a server, the result can be checked on the container's certificate
+directly — `force-command` under "Critical Options", no `permit-pty` under
+"Extensions":
+
+```sh
+ssh-keygen -L -f ~/.ssh/sandbox_ed25519-cert.pub
+```
 
 ## Fetching from GitHub
 

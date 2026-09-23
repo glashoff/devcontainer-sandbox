@@ -23,12 +23,17 @@ GITHUB_URL = re.compile(
 
 
 def read_settings(path: Path) -> dict[str, str]:
-    """Reads .devcontainer/sandbox.env as KEY=VALUE. Parsed, never executed."""
+    """Reads .devcontainer/sandbox.env as KEY=VALUE. Parsed, never executed.
+
+    The value is the rest of the line, so that a setting can hold spaces
+    (SERVER_SSH_FORCE_COMMAND, GIT_USER_NAME); the same as initialize.py does.
+    A comment therefore needs a line of its own.
+    """
     settings = {}
     if not path.is_file():
         return settings
     for line in path.read_text().splitlines():
-        match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\s#]*)", line)
+        match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$", line)
         if match:
             settings[match.group(1)] = match.group(2)
     return settings
