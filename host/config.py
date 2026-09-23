@@ -7,6 +7,7 @@ rest that must not be in a project: the CA key, the deploy keys and the
 projects' Claude Code tokens.
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -18,6 +19,10 @@ CA_KEY = CA_DIR / "ca"
 # One Claude Code token per project, named after its folder, written by hand
 # from "claude setup-token" (README "Claude Code's login").
 TOKEN_DIR = CONFIG_DIR / "claude-tokens"
+# Not configuration but the host's own bookkeeping: which image a project last
+# ran, and the last approved state of its protected files.
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME")
+                 or Path.home() / ".local/state") / "devcontainer-sandbox"
 
 
 def read_config(path: Path | None = None) -> dict[str, str]:

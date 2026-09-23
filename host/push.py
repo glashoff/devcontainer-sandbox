@@ -35,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import CONFIG_DIR  # noqa: E402
+from protected import DRAFT_DIR  # noqa: E402
 from remote import (REMOTE_SETTING, origin_mismatch, read_settings,  # noqa: E402
                     recorded_origin, sandbox_env)
 
@@ -315,6 +316,23 @@ def main():
             "project another way.")
 
     base = old or fork_point(mirror, new)
+
+    # The draft directory is where the container writes its proposals for the
+    # protected files; what belongs in the history is the approved file. A
+    # commit that carries the draft would put the unreviewed version into the
+    # repository, so this looks at every commit of the push, not just at the
+    # result: a directory added and removed again in between still travelled.
+    drafted = git("-C", str(mirror), "log", "--no-decorate", "--format=%h %s",
+                  f"{base}..{new}" if base else new, "--", DRAFT_DIR)
+    if drafted:
+        listed = "\n".join(f"  {line}" for line in drafted.splitlines()[:10])
+        die(f"These commits contain {DRAFT_DIR}/, which holds the container's "
+            f"proposals for the protected files:\n{listed}\n\n"
+            f"Only the approved files belong in the history. Take the "
+            f"directory out of those commits (git rm -r --cached {DRAFT_DIR}, "
+            "then amend or rebase), and it stays out by itself afterwards: it "
+            "carries a .gitignore of its own.")
+
     print(f"Push to {remote}\n"
           f"  {branch}: {old[:12] if old else '(new branch)'} -> {new[:12]}")
     warnings += review_commits(mirror, base, new, workspace)

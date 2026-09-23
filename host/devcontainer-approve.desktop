@@ -1,0 +1,14 @@
+[Desktop Entry]
+# Installed by setup.py to ~/.local/share/applications/, which fills in the
+# path of approve.py below (a desktop entry cannot expand ~).
+# MimeType=inode/directory puts it into the file manager's "Open With" menu.
+Type=Application
+Name=Protected files
+Comment=Show what the container proposes for this project's protected files, then apply it
+Exec=@APPROVE@ --pause %f
+Icon=utilities-terminal
+Terminal=true
+MimeType=inode/directory;
+Categories=Development;
+Keywords=devcontainer;sandbox;protected;approve;
+StartupNotify=true

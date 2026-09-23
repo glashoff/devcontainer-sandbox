@@ -30,7 +30,11 @@
     // no credential helpers, fetching from GitHub only (README).
     "source=${localEnv:HOME}/.config/devcontainer-sandbox/gitconfig-${localWorkspaceFolderBasename},target=/home/vscode/.gitconfig,type=bind,readonly",
     // The container config itself is read-only from inside the container.
+    // The container proposes changes to it in protected_draft/.devcontainer/,
+    // and devcontainer-approve applies them (README "Protected files").
     "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,readonly",
+    // Anything else this project protects the same way, at its own path:
+    // "source=${localWorkspaceFolder}/Makefile,target=${containerWorkspaceFolder}/Makefile,type=bind,readonly",
     // Public key for SSH login (created by initialize.py), read-only.
     "source=${localEnv:HOME}/.ssh/devcontainer_ed25519.pub,target=/etc/ssh/devcontainer/authorized_keys,type=bind,readonly"
     // Optional Wayland (README "Wayland"), together with containerEnv below:

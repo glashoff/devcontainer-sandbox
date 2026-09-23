@@ -32,6 +32,7 @@ never leaves the machine.
 - [Fetching from GitHub](#fetching-from-github)
 - [Pushing from the host](#pushing-from-the-host)
 - [Claude Code's login](#claude-codes-login)
+- [Protected files](#protected-files)
 - [Rolling back](#rolling-back)
 - [Verify the sandbox](#verify-the-sandbox)
 - [Repository layout](#repository-layout)
@@ -54,7 +55,7 @@ from the host.
 | Host SSH agent | not forwarded (refused by sshd, removed on attach if it gets in anyway) |
 | Host git credentials | not forwarded; containers can fetch from GitHub, but not push ([Fetching from GitHub](#fetching-from-github)) |
 | git identity (name, email) | passed through read-only, so commits work ([Host setup](#host-setup-in-detail)) |
-| `.devcontainer/` of the project | read-only |
+| `.devcontainer/` of the project, and whatever else a project protects | read-only; changed through `devcontainer-approve` ([Protected files](#protected-files)) |
 | Project folder | read-write |
 | Host desktop (Wayland), audio, GPU | not available, unless enabled per project ([Wayland](#wayland), [Audio](#audio), [GPU](#gpu)) |
 | Server via SSH | not available, unless enabled per project ([Server access](#server-access)) |
@@ -227,16 +228,18 @@ journalctl --user -u devcontainer-build-image.service
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start`,
-`devcontainer-build-image` and `devcontainer-push` commands in `~/.local/bin`,
+`devcontainer-build-image`, `devcontainer-push` and `devcontainer-approve`
+commands in `~/.local/bin`,
 installs the systemd units, starts the daily build timer (`--no-timer` to skip
 that), puts a configuration template in
 `~/.config/devcontainer-sandbox/config`, creates `claude-tokens/` next to it
 ([Claude Code's login](#claude-codes-login)) and adds two entries to the file
 manager: right-click a project folder, *Open With*, and **Dev container**
 starts the container and opens the editor, **Git push** pushes the project
-([Pushing from the host](#pushing-from-the-host)). Both run in a terminal
-window: the first keeps it open if something went wrong, the second until the
-push has been read.
+([Pushing from the host](#pushing-from-the-host)), **Protected files** applies
+what the container proposed ([Protected files](#protected-files)). They run in
+a terminal window: the first keeps it open if something went wrong, the others
+until what they printed has been read.
 
 Changes in `image/` are picked up by the next build
 (`devcontainer-build-image` to build right away).
@@ -818,6 +821,66 @@ token file keeps it as its timestamp. And the file is named after the project
 folder, so two projects with the same folder name in different places share a
 token.
 
+## Protected files
+
+Some files should not be changed from inside the container even though the
+project folder is writable: a `Makefile` the host runs afterwards, a deploy
+script, CI configuration, the container's own `.devcontainer/`. A project
+mounts each of them read-only, at its own path, in
+`.devcontainer/devcontainer.json`:
+
+```jsonc
+"mounts": [
+  "source=${localWorkspaceFolder}/Makefile,target=${containerWorkspaceFolder}/Makefile,type=bind,readonly",
+  "source=${localWorkspaceFolder}/protected,target=${containerWorkspaceFolder}/protected,type=bind,readonly"
+]
+```
+
+Inside the container these are read-only for real: writing, creating,
+deleting, renaming the mount point and unmounting are all refused, and
+`.devcontainer/` cannot change the list, since it is read-only itself. The
+list lives nowhere else — the mounts *are* the list.
+
+**The container proposes instead of changing.** Next to the project it has
+`protected_draft/`, which mirrors the protected paths and is writable:
+`protected_draft/Makefile`, `protected_draft/.devcontainer/devcontainer.json`.
+On every `devcontainer-start` the host refreshes the draft files nobody
+edited, file by file, so the container works from what the host has now. A
+draft file the container has changed is left alone.
+
+**The host applies it**, after reading what it says:
+
+```sh
+devcontainer-approve ~/Projects/NAME     # or: right-click, Open With > Protected files
+```
+
+It prints the diff per file and a summary of what is proposed, then asks.
+There is no `--yes`: a protected file changed without somebody reading the
+diff is not protected. It warns about deletions, files that become
+executable, mode changes and large files, and separately about any change
+under `.devcontainer/`, naming the keys it found (`privileged`, `runArgs`,
+`mounts`, `features`, the lifecycle commands). A draft containing a symbolic
+link is refused rather than copied, so a link out of the tree cannot make the
+host write elsewhere.
+
+**When both sides changed** the same file — you on the host, the container in
+its draft — it stops and names the files instead of guessing, like a merge
+conflict. What the last approved state was is remembered in
+`~/.local/state/devcontainer-sandbox/`; without that, a file you added on the
+host would look like one the container wants deleted.
+
+**The draft never enters the repository.** It carries a `.gitignore` of its
+own that ignores everything in it, and `devcontainer-push` refuses a push
+whose commits contain `protected_draft/` at any point, including one that
+adds it and a later one that removes it again. What belongs in the history is
+the approved file.
+
+Two limits worth knowing. The protection is worth exactly as much as the
+reading of the diff — it stops accidents and blunt attempts, not a change
+hidden in a large one. And a protected file that calls an unprotected one
+protects nothing: a `Makefile` under this and its scripts beside it, writable,
+only moves the problem.
+
 ## Rolling back
 
 If a build breaks something, point the project at the previous build,
@@ -857,6 +920,8 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
 | [host/deploy_key.py](host/deploy_key.py) | the read-only GitHub deploy key of a project |
 | [host/remote.py](host/remote.py) | the repository a project belongs to (`GIT_REMOTE_URL`), and its comparison with `.git/config` |
+| [host/protected.py](host/protected.py) | which paths a project protects, and the drafts for them |
+| [host/approve.py](host/approve.py) | applies what a container proposed for the protected files; `devcontainer-approve` |
 | [host/push.py](host/push.py) | pushes a project's branch from the host, fast-forward only, after showing what it contains; `devcontainer-push` |
 | [host/initialize.py](host/initialize.py) | creates the bind-mount sources on the host (`CLAUDE.md`, SSH key) |
 | [host/devcontainer_cli.py](host/devcontainer_cli.py) | runs the devcontainer CLI (shared by the scripts) |

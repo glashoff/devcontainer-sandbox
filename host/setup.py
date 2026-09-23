@@ -2,8 +2,9 @@
 """Sets this host up for the dev container sandbox (README "Host setup").
 
 Links ~/.local/share/devcontainer-sandbox to this repository's host/ directory,
-creates the devcontainer-start, devcontainer-build-image and devcontainer-push
-commands, installs the systemd units and starts the daily build timer.
+creates the devcontainer-start, devcontainer-build-image, devcontainer-push
+and devcontainer-approve commands, installs the systemd units and starts the
+daily build timer.
 
 Run it once, from the clone. Changes in host/ take effect immediately
 afterwards, since nothing is copied.
@@ -28,10 +29,12 @@ APPLICATIONS_DIR = Path.home() / ".local/share/applications"
 UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer"]
 COMMANDS = {"devcontainer-start": "start.py",
             "devcontainer-build-image": "build-image.py",
-            "devcontainer-push": "push.py"}
+            "devcontainer-push": "push.py",
+            "devcontainer-approve": "approve.py"}
 # Desktop entry -> the placeholder in it and the script that replaces it.
 ENTRIES = {"devcontainer-start.desktop": ("@START@", "start.py"),
-           "devcontainer-push.desktop": ("@PUSH@", "push.py")}
+           "devcontainer-push.desktop": ("@PUSH@", "push.py"),
+           "devcontainer-approve.desktop": ("@APPROVE@", "approve.py")}
 TIMER = "devcontainer-build-image.timer"
 # Files an earlier version of setup.py copied into DEST instead of linking it.
 COPIED_BY_OLD_SETUP = ["start.py", "build-image.py", "initialize.py",
@@ -92,7 +95,7 @@ def install_desktop_entries() -> None:
         subprocess.run(["update-desktop-database", str(APPLICATIONS_DIR)],
                        capture_output=True)
     print("File manager entries: right-click a project folder, Open With > "
-          "Dev container (start it) or Git push")
+          "Dev container (start it), Git push or Protected files")
 
 
 def systemctl(*args: str) -> int:

@@ -25,8 +25,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import TOKEN_DIR  # noqa: E402
-from devcontainer_cli import DOCKER, Cli, die, docker_value  # noqa: E402
+from config import STATE_DIR, TOKEN_DIR  # noqa: E402
+from devcontainer_cli import (DOCKER, Cli, die,  # noqa: E402
+                              docker_value, load_jsonc)
+from protected import sync_draft  # noqa: E402
 from deploy_key import (CONTAINER_KEY, CONTAINER_KNOWN_HOSTS,  # noqa: E402
                         KEY_DIR, deploy_repo, key_file)
 from remote import (REMOTE_SETTING, github_repo, origin_mismatch,  # noqa: E402
@@ -50,8 +52,6 @@ SSH_KEY = Path(os.environ.get("DEVCONTAINER_SSH_KEY")
 SSH_CA = Path(os.environ.get("DEVCONTAINER_SSH_CA")
               or Path.home() / ".config/devcontainer-sandbox/ssh-ca/ca")
 SSH_CONFIG = Path.home() / ".ssh/config"
-STATE_DIR = Path(os.environ.get("XDG_STATE_HOME")
-                 or Path.home() / ".local/state") / "devcontainer-sandbox"
 # Warn when the image is older than this: the daily build is not running.
 IMAGE_MAX_AGE_HOURS = 48
 CERTIFICATE_HOURS = 24
@@ -64,42 +64,6 @@ environment:
                         (default: ~/.config/devcontainer-sandbox/ssh-ca/ca)
   DOCKER_PATH           docker or podman (default: docker; podman needs a local devcontainer CLI)
 """
-
-
-def load_jsonc(path):
-    """Parses JSON with comments and trailing commas (devcontainer.json).
-
-    A regex over the file would pick up commented-out settings, which is why
-    the comments are removed properly here.
-    """
-    text = path.read_text()
-    out = []
-    i, in_string = 0, False
-    while i < len(text):
-        char = text[i]
-        if in_string:
-            out.append(char)
-            if char == "\\":
-                out.append(text[i + 1])
-                i += 2
-                continue
-            if char == '"':
-                in_string = False
-            i += 1
-        elif char == '"':
-            in_string = True
-            out.append(char)
-            i += 1
-        elif text.startswith("//", i):
-            newline = text.find("\n", i)
-            i = len(text) if newline < 0 else newline
-        elif text.startswith("/*", i):
-            end = text.find("*/", i)
-            i = len(text) if end < 0 else end + 2
-        else:
-            out.append(char)
-            i += 1
-    return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
 
 
 def watched_image(config_file):
@@ -561,6 +525,12 @@ def main():
 
     settings = read_settings(sandbox_env(workspace))
     ensure_deploy_key(workspace, settings)
+
+    # Drafts nobody edited follow the protected files, so that what the
+    # container sees there is current (README "Protected files").
+    refreshed = sync_draft(workspace)
+    if refreshed:
+        print(f"Refreshed the draft of {', '.join(refreshed)}")
 
     # Create bind-mount sources on the host. The same script also runs as
     # initializeCommand, but inside the CLI container ssh-keygen may not work.

@@ -1,7 +1,10 @@
 """Runs the devcontainer CLI, locally if installed, otherwise in a container
-(Linux and Docker only). Imported by start.py and build-image.py."""
+(Linux and Docker only), and reads the devcontainer.json it works from.
+Imported by start.py, build-image.py and protected.py."""
 
 import hashlib
+import json
+import re
 import os
 import shutil
 import subprocess
@@ -26,8 +29,45 @@ CLI_TAG = f"{CLI_VERSION}-{hashlib.sha256(CLI_DOCKERFILE.encode()).hexdigest()[:
 CLI_IMAGE = f"local/devcontainer-cli:{CLI_TAG}"
 
 
+def load_jsonc(path):
+    """Parses JSON with comments and trailing commas (devcontainer.json).
+
+    A regex over the file would pick up commented-out settings, which is why
+    the comments are removed properly here.
+    """
+    text = path.read_text()
+    out = []
+    i, in_string = 0, False
+    while i < len(text):
+        char = text[i]
+        if in_string:
+            out.append(char)
+            if char == "\\":
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if char == '"':
+                in_string = False
+            i += 1
+        elif char == '"':
+            in_string = True
+            out.append(char)
+            i += 1
+        elif text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline
+        elif text.startswith("/*", i):
+            end = text.find("*/", i)
+            i = len(text) if end < 0 else end + 2
+        else:
+            out.append(char)
+            i += 1
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+
+
 def die(message):
     """Exits with an error message, like the shell scripts' die()."""
+    sys.stdout.flush()  # what was printed so far belongs before the message
     sys.exit(message)
 
 
