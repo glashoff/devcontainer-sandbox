@@ -4,7 +4,7 @@
 Links ~/.local/share/devcontainer-sandbox to this repository's host/ directory,
 creates the devcontainer-start, devcontainer-build-image, devcontainer-push
 and devcontainer-approve commands, installs the systemd units and starts the
-daily build timer.
+timers: the daily build and the check for idle containers.
 
 Run it once, from the clone. Changes in host/ take effect immediately
 afterwards, since nothing is copied.
@@ -26,7 +26,8 @@ BIN = Path.home() / ".local/bin"
 UNIT_DIR = Path.home() / ".config/systemd/user"
 APPLICATIONS_DIR = Path.home() / ".local/share/applications"
 
-UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer"]
+UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer",
+         "devcontainer-idle-stop.service", "devcontainer-idle-stop.timer"]
 COMMANDS = {"devcontainer-start": "start.py",
             "devcontainer-build-image": "build-image.py",
             "devcontainer-push": "push.py",
@@ -35,7 +36,7 @@ COMMANDS = {"devcontainer-start": "start.py",
 ENTRIES = {"devcontainer-start.desktop": ("@START@", "start.py"),
            "devcontainer-push.desktop": ("@PUSH@", "push.py"),
            "devcontainer-approve.desktop": ("@APPROVE@", "approve.py")}
-TIMER = "devcontainer-build-image.timer"
+TIMERS = ["devcontainer-build-image.timer", "devcontainer-idle-stop.timer"]
 # Files an earlier version of setup.py copied into DEST instead of linking it.
 COPIED_BY_OLD_SETUP = ["start.py", "build-image.py", "initialize.py",
                        "build-finished.py", "setup-ca.py", "setup.py",
@@ -105,7 +106,8 @@ def systemctl(*args: str) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--no-timer", dest="timer", action="store_false",
-                        help="install the units but do not start the daily build")
+                        help="install the units but do not start the timers "
+                             "(daily build, stopping idle containers)")
     parser.add_argument("--server", action="store_true",
                         help="also set up the certificate authority and the "
                              "server (setup-ca.py), which changes the server's "
@@ -133,10 +135,11 @@ def main() -> None:
         install(HERE / name, UNIT_DIR, 0o644)
     systemctl("daemon-reload")
     if args.timer:
-        systemctl("enable", "--now", TIMER)
-        print(f"Timer {TIMER} enabled")
+        systemctl("enable", "--now", *TIMERS)
+        print(f"Timers enabled: {', '.join(TIMERS)}")
     else:
-        print(f"Units installed, timer not started (systemctl --user enable --now {TIMER})")
+        print("Units installed, timers not started "
+              f"(systemctl --user enable --now {' '.join(TIMERS)})")
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_DIR.chmod(0o700)

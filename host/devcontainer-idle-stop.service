@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop dev containers that nobody uses
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/devcontainer-sandbox/idle-stop.py

@@ -23,6 +23,7 @@ never leaves the machine.
 - [Tools in the image](#tools-in-the-image)
 - [Dependencies and their defaults](#dependencies-and-their-defaults)
 - [How updates work](#how-updates-work)
+- [Idle containers](#idle-containers)
 - [Host setup in detail](#host-setup-in-detail)
 - [Starting a project](#starting-a-project)
 - [Adding a tool](#adding-a-tool)
@@ -212,9 +213,10 @@ The timer runs the build daily; if the machine was off or suspended, it catches
 up afterwards (it never wakes it). `devcontainer-start` then sees the new image
 and recreates the container. Only the project folder and the volumes survive,
 which is where everything of value lives; tools installed by hand inside the
-container are gone. A container that keeps running for days is not updated;
-start it again with `devcontainer-start` now and then. `devcontainer-start`
-warns if the image is older than 48 hours.
+container are gone. A running container is not updated, but one nobody uses
+is stopped after half an hour ([Idle containers](#idle-containers)), so the
+next start picks up the new image. `devcontainer-start` warns if the image is
+older than 48 hours.
 
 Before each build the current image is tagged
 `local/devcontainer-sandbox:previous`. Old builds are removed afterwards
@@ -231,14 +233,51 @@ systemctl --user list-timers devcontainer-build-image.timer
 journalctl --user -u devcontainer-build-image.service
 ```
 
+## Idle containers
+
+Closing the editor does not stop a container. A timer on the host
+([devcontainer-idle-stop.timer](host/devcontainer-idle-stop.timer)) looks at
+the running sandbox containers every 10 minutes and stops those nobody has used
+for **30 minutes**. Stopped, not removed: `devcontainer-start` brings the
+container back, with the newest image.
+
+A container counts as in use while
+
+- an SSH session is open in it: the editor, or someone logged in. Restarting
+  the editor is harmless, it reconnects well within the half hour;
+- Claude Code runs in it, whoever started it. The voice app runs Claude
+  detached, so it keeps working with no connection at all; a Claude that waits
+  for permission counts as well, since stopping would end its task.
+
+A process of its own, such as a web server, does not count. To keep such a
+container running, set this in its `.devcontainer/sandbox.env`:
+
+```sh
+IDLE_STOP=no
+```
+
+`IDLE_STOP_MINUTES` in the [configuration file](#the-configuration-file)
+changes the half hour for all projects; `0` turns the stopping off. To see what
+it would do, and why:
+
+```sh
+~/.local/share/devcontainer-sandbox/idle-stop.py --dry-run
+journalctl --user -u devcontainer-idle-stop.service
+```
+
+A stopped container's entry in `~/.ssh/config` keeps its old port, which the
+next container to start may be given. `ssh devcontainer-<project>-…` can then
+end up in another project's container without warning; start a project with
+`devcontainer-start`, which rewrites the entry, before connecting to it.
+
 ## Host setup in detail
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start`,
 `devcontainer-build-image`, `devcontainer-push` and `devcontainer-approve`
 commands in `~/.local/bin`,
-installs the systemd units, starts the daily build timer (`--no-timer` to skip
-that), puts a configuration template in
+installs the systemd units, starts the timers for the daily build and for
+[idle containers](#idle-containers) (`--no-timer` to skip that), puts a configuration template in
 `~/.config/devcontainer-sandbox/config`, creates `claude-tokens/` next to it
 ([Claude Code's login](#claude-codes-login)) and adds two entries to the file
 manager: right-click a project folder, *Open With*, and **Dev container**
@@ -981,6 +1020,8 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/config.py](host/config.py), [config.example](host/config.example) | the local configuration in `~/.config/devcontainer-sandbox/config` |
 | [host/build-image.py](host/build-image.py) | builds the image; `devcontainer-build-image` |
 | [host/devcontainer-build-image.timer](host/devcontainer-build-image.timer) | runs the build daily |
+| [host/idle-stop.py](host/idle-stop.py), [devcontainer-idle-stop.timer](host/devcontainer-idle-stop.timer) | stops containers nobody uses |
+| [host/activity.py](host/activity.py) | whether a container is in use (SSH session, Claude Code) |
 | [host/build-finished.py](host/build-finished.py) | desktop notification and mail when a build finished |
 | [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
 | [host/deploy_key.py](host/deploy_key.py) | the read-only GitHub deploy key of a project |

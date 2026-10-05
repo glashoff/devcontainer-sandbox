@@ -29,6 +29,12 @@
 #GIT_USER_NAME=octocat
 #GIT_USER_EMAIL=1234567+octocat@users.noreply.github.com
 
+# --- Idle containers (idle-stop.py) ----------------------------------------
+# A container with no SSH session and no Claude Code in it is stopped after
+# this many minutes; 0 keeps every container running. A single project opts
+# out with IDLE_STOP=no in its sandbox.env.
+#IDLE_STOP_MINUTES=30
+
 # --- Mail about failed builds (build-finished.py) --------------------------
 # Use a send-only mailbox, never your main account: its password sits on the
 # laptop, the machine this sandbox exists to protect.
