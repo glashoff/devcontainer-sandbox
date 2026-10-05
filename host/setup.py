@@ -2,8 +2,8 @@
 """Sets this host up for the dev container sandbox (README "Host setup").
 
 Links ~/.local/share/devcontainer-sandbox to this repository's host/ directory,
-creates the devcontainer-start, devcontainer-build-image, devcontainer-push
-and devcontainer-approve commands, installs the systemd units and starts the
+creates the devcontainer-start, devcontainer-build-image, devcontainer-push,
+devcontainer-approve and devcontainer-stop-idle commands, installs the systemd units and starts the
 timers: the daily build and the check for idle containers.
 
 Run it once, from the clone. Changes in host/ take effect immediately
@@ -31,7 +31,8 @@ UNITS = ["devcontainer-build-image.service", "devcontainer-build-image.timer",
 COMMANDS = {"devcontainer-start": "start.py",
             "devcontainer-build-image": "build-image.py",
             "devcontainer-push": "push.py",
-            "devcontainer-approve": "approve.py"}
+            "devcontainer-approve": "approve.py",
+            "devcontainer-stop-idle": "idle-stop.py"}
 # Desktop entry -> the placeholder in it and the script that replaces it.
 ENTRIES = {"devcontainer-start.desktop": ("@START@", "start.py"),
            "devcontainer-push.desktop": ("@PUSH@", "push.py"),

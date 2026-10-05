@@ -7,6 +7,8 @@ or Claude Code runs in it (activity.py). Once it has been idle for
 IDLE_STOP_MINUTES (host configuration, default 30, 0 turns this off), it is
 stopped, not removed: the next devcontainer-start brings it back, on the
 newest image. A project opts out with IDLE_STOP=no in its sandbox.env.
+
+devcontainer-stop-idle --now stops every idle container right away.
 """
 
 import argparse
@@ -40,10 +42,14 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="show what each container is doing, stop nothing "
                              "and leave the idle times as they are")
-    dry_run = parser.parse_args().dry_run
+    parser.add_argument("--now", action="store_true",
+                        help="stop every container that is idle right now, "
+                             "without waiting; also with IDLE_STOP_MINUTES=0")
+    args = parser.parse_args()
+    dry_run = args.dry_run
 
-    minutes = idle_minutes(read_config())
-    if minutes == 0:
+    minutes = 0 if args.now else idle_minutes(read_config())
+    if minutes == 0 and not args.now:
         if dry_run:
             print("IDLE_STOP_MINUTES=0, nothing is stopped")
         return
@@ -88,7 +94,8 @@ def main():
             if not idle_file.exists():
                 idle_file.write_text(f"{now}\n")
             continue
-        print(f"{project}: idle for {idle_for:.0f} minutes, stopping its container")
+        print(f"{project}: idle" + (f" for {idle_for:.0f} minutes" if idle_for else "")
+              + ", stopping its container")
         result = subprocess.run([DOCKER, "stop", container_id],
                                 capture_output=True, text=True)
         if result.returncode != 0:

@@ -260,10 +260,11 @@ IDLE_STOP=no
 
 `IDLE_STOP_MINUTES` in the [configuration file](#the-configuration-file)
 changes the half hour for all projects; `0` turns the stopping off. To see what
-it would do, and why:
+it would do, and why, or to stop every idle container right away:
 
 ```sh
-~/.local/share/devcontainer-sandbox/idle-stop.py --dry-run
+devcontainer-stop-idle --dry-run
+devcontainer-stop-idle --now
 journalctl --user -u devcontainer-idle-stop.service
 ```
 
@@ -276,8 +277,8 @@ end up in another project's container without warning; start a project with
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start`,
-`devcontainer-build-image`, `devcontainer-push` and `devcontainer-approve`
-commands in `~/.local/bin`,
+`devcontainer-build-image`, `devcontainer-push`, `devcontainer-approve` and
+`devcontainer-stop-idle` commands in `~/.local/bin`,
 installs the systemd units, starts the timers for the daily build and for
 [idle containers](#idle-containers) (`--no-timer` to skip that), puts a configuration template in
 `~/.config/devcontainer-sandbox/config`, creates `claude-tokens/` next to it
@@ -1022,7 +1023,7 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/config.py](host/config.py), [config.example](host/config.example) | the local configuration in `~/.config/devcontainer-sandbox/config` |
 | [host/build-image.py](host/build-image.py) | builds the image; `devcontainer-build-image` |
 | [host/devcontainer-build-image.timer](host/devcontainer-build-image.timer) | runs the build daily |
-| [host/idle-stop.py](host/idle-stop.py), [devcontainer-idle-stop.timer](host/devcontainer-idle-stop.timer) | stops containers nobody uses |
+| [host/idle-stop.py](host/idle-stop.py), [devcontainer-idle-stop.timer](host/devcontainer-idle-stop.timer) | stops containers nobody uses; `devcontainer-stop-idle` |
 | [host/activity.py](host/activity.py) | whether a container is in use (SSH session, Claude Code) |
 | [host/build-finished.py](host/build-finished.py) | desktop notification and mail when a build finished |
 | [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
