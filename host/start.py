@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from activity import claude_running, container_of  # noqa: E402
 from config import STATE_DIR, TOKEN_DIR  # noqa: E402
 from devcontainer_cli import (DOCKER, Cli, die,  # noqa: E402
                               docker_value, load_jsonc)
@@ -55,6 +56,8 @@ SSH_CONFIG = Path.home() / ".ssh/config"
 # Warn when the image is older than this: the daily build is not running.
 IMAGE_MAX_AGE_HOURS = 48
 CERTIFICATE_HOURS = 24
+# Left in the project folder by the voice app while its Claude runs there.
+VOICE_APP_STOP_SCRIPT = "stop-voice-claude.sh"
 
 EPILOG = """\
 environment:
@@ -476,6 +479,23 @@ def grant_device_groups(container_id, remote_user):
                      f"usermod -aG {gid} {remote_user}")
 
 
+def claude_at_work(workspace):
+    """Whether Claude Code runs in the project's container right now.
+
+    Recreating the container would end it in the middle of a task, which
+    matters most for the voice app: its Claude runs on with nobody connected.
+    While it does, the app keeps a stop script in the project folder, which
+    counts as well when the processes cannot be read.
+    """
+    container_id = container_of(workspace)
+    if not container_id:
+        return False
+    running = claude_running(container_id)
+    if running is None:
+        return (workspace / VOICE_APP_STOP_SCRIPT).exists()
+    return running
+
+
 def find_editor(wanted):
     """The editor command, and a check that it can open a remote SSH folder."""
     editor = wanted or next(
@@ -575,8 +595,14 @@ def main():
         if not image_id:
             die(f"Image {image} not found; build it first: devcontainer-build-image")
         if state_file.exists() and state_file.read_text().strip() != image_id:
-            print(f"New image {image}, recreating the container")
-            rebuild = True
+            if not rebuild and claude_at_work(workspace):
+                print(f"New image {image}, but Claude Code is at work in the "
+                      "container; it is updated on a later start "
+                      "(or now with --rebuild, which ends Claude's task)")
+                image_id = None
+            else:
+                print(f"New image {image}, recreating the container")
+                rebuild = True
         if image_age(image) >= timedelta(hours=IMAGE_MAX_AGE_HOURS):
             print(f"Warning: {image} is older than {IMAGE_MAX_AGE_HOURS} hours, "
                   "is the daily build running? "

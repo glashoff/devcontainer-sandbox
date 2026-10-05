@@ -215,7 +215,9 @@ and recreates the container. Only the project folder and the volumes survive,
 which is where everything of value lives; tools installed by hand inside the
 container are gone. A running container is not updated, but one nobody uses
 is stopped after half an hour ([Idle containers](#idle-containers)), so the
-next start picks up the new image. `devcontainer-start` warns if the image is
+next start picks up the new image. While Claude Code is at work in the
+container, `devcontainer-start` leaves it as it is and the update waits for a
+later start (`--rebuild` forces it). `devcontainer-start` warns if the image is
 older than 48 hours.
 
 Before each build the current image is tagged
