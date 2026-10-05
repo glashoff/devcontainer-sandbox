@@ -17,6 +17,9 @@ ARG REFRESH
 # Claude Code is installed afterwards, so it lands in the current version.
 # It is exempt from the npm defaults in /etc/npmrc: it should be the newest
 # release every day, and its postinstall script sets up its native binary.
+# Since npm 11.19, --ignore-scripts=false alone no longer runs that script; the
+# package must also be named in --allow-scripts. "claude --version" fails the
+# build if the binary is missing, instead of shipping an image without it.
 RUN echo "Updates of ${REFRESH}" \
  && apt-get update \
  && apt-get -y upgrade \
@@ -26,5 +29,7 @@ RUN echo "Updates of ${REFRESH}" \
       && nvm alias default "lts/*" \
       && ln -sfn "$NVM_DIR/versions/node/$(nvm version default)" "$NVM_DIR/current"' \
  && npm install -g --min-release-age=0 --ignore-scripts=false \
+      --allow-scripts=@anthropic-ai/claude-code \
       @anthropic-ai/claude-code@latest \
+ && claude --version \
  && npm cache clean --force
