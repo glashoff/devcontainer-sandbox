@@ -141,7 +141,7 @@ once.
 ## Tools in the image
 
 - Node LTS (nvm), Claude Code, GitHub CLI, git
-- Python (Debian's)
+- Python (Debian's), `protoc` for protobuf clients
 - C/C++: gcc (`build-essential`), clang, clangd, clang-format, clang-tidy,
   LLVM, lld, gdb, cmake, ninja
 - Rust: rustup with the current stable toolchain, rustfmt, clippy,
@@ -1002,16 +1002,28 @@ Two versions are in the image, unpacked from the official AppImages:
 
 They are built against wxWidgets 3.3.2, which picks Wayland or X11 at run
 time, and they bring their own libraries including Mesa, so they need nothing
-from us to show a window. A project starts them from the AppDir
-(`$KICAD_STABLE_APPDIR/bin/kicad`, `kicad-cli`, `eeschema`, `pcbnew`); they
-are deliberately not on `PATH`, because with two versions installed a bare
-`kicad` would have to mean one of them.
+from us to show a window. In a terminal:
+
+```sh
+kicad_stable  [project.kicad_pro]      # 10.0.6
+kicad_nightly [project.kicad_pro]      # 10.99
+```
+
+Both start in the background. They are shell functions (`/etc/profile.d/kicad.sh`)
+and run `$KICAD_STABLE_APPDIR/AppRun kicad`; a project that starts KiCad
+itself goes the same way, `AppRun kicad-cli`, `AppRun eeschema`,
+`AppRun pcbnew`. **Not `bin/kicad`:** only `AppRun` links the bundled WebKit
+helper programs to `/tmp/.kicad-wk-helpers`, the path WebKit was built with,
+and without them KiCad dies as soon as it shows an HTML page — the template
+chooser behind "New project" does. Neither version is on `PATH`, because with
+two of them a bare `kicad` would have to mean one.
 
 The nightly has no libraries of its own — they are 2.5 GB that the stable
 already has — and finds the stable's through `KICAD10_SYMBOL_DIR`,
 `KICAD10_FOOTPRINT_DIR` and `KICAD10_3DMODEL_DIR`, which the image sets. The
-example projects (`demos`) are not in the image either. Everything else of
-the stable version is, 3D models included.
+example projects (`demos`) are in neither version, 341 MB each; whoever wants
+them unpacks an archive from `image/.devcontainer/kicad/` by hand. Everything
+else of the stable version is there, 3D models included.
 
 **For a project this means:** turn on the [Wayland](#wayland) passthrough, or
 KiCad has no display and will not start. A [GPU](#gpu) is optional — without
@@ -1019,25 +1031,51 @@ one Mesa renders in software. The IPC API needs `enable_server`, which is
 already in the configuration below, and its sockets live in `/tmp/kicad/`,
 which the project creates.
 
+A window is the only real check that the title-bar buttons arrived, but what
+GTK will read can be asked without one. The container has no `gsettings`, so
+ask KiCad's own GLib, which is the one that matters here:
+
+```sh
+$KICAD_NIGHTLY_APPDIR/AppRun python3.11 -c '
+import ctypes, os
+g = ctypes.CDLL(os.environ["KICAD_NIGHTLY_APPDIR"] + "/shared/lib/libgio-2.0.so.0")
+g.g_settings_new.restype = ctypes.c_void_p
+g.g_settings_get_string.restype = ctypes.c_char_p
+g.g_settings_get_string.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+schema = g.g_settings_new(b"org.gnome.desktop.wm.preferences")
+print(g.g_settings_get_string(schema, b"button-layout").decode())'
+```
+
+It must print `appmenu:minimize,maximize,close`. `appmenu:close` is the
+schema's own default and means the keyfile was not read, so the buttons will
+be missing.
+
 **The first start asks nothing.** KiCad would ask about update checks, data
 collection and the library tables; the image answers all three by file, in
 `~/.config/kicad/10.0/` and `~/.config/kicad/10.99/`: `enable_server` on,
 `canvas_type` accelerated, both prompts off, update checks off (the version
-is pinned and the container should not phone out), and the library tables
-copied from the stable version's own template. A fresh container has them
-again, since they are part of the image, not of a volume.
+is pinned and the container should not phone out), the symbol and footprint
+tables copied from the stable version's own template, and an empty design
+block table, for which there is no template and whose question would offer
+libraries that are not in the image. A fresh container has all of it again,
+since it is part of the image, not of a volume.
 
-Two files are in the image that no program in the container could place
-itself, and both are meant for every window, not only KiCad's:
+Three settings are in the image that no program in the container could make
+for itself, and all of them are meant for every window, not only KiCad's:
 
 - `/etc/drirc` turns vsync off for `kicad`, `eeschema` and `pcbnew`. GNOME
   sends no frame callbacks to a covered window, Mesa's `eglSwapBuffers` then
   blocks the thread that also serves KiCad's API, and the API stops answering
   while a window is covered.
-- `/etc/xdg/gtk-3.0/settings.ini` sets `gtk-decoration-layout`. GTK
-  applications draw their own title bar and ask GNOME which buttons belong in
-  it; that setting does not exist in a container, and the fallback is "close"
-  alone. With it, every GTK window has minimise and maximise, as on the host.
+- The title-bar buttons, minimise and maximise, which a container otherwise
+  has nowhere to read: GTK draws the title bar itself and asks the desktop
+  which buttons belong in it, nobody answers, and the fallback is the close
+  button alone. It takes two files, because an application reads the source
+  its GTK was built for — `/etc/xdg/gtk-3.0/settings.ini` for Debian's GTK,
+  `~/.config/glib-2.0/settings/keyfile` for one that brings its own, which
+  the KiCad AppImages do. The second works only with `GSETTINGS_BACKEND=keyfile`,
+  which the image sets for every process: a container has no dconf, so without
+  it GSettings keeps everything in memory and reads no file at all.
 
 ### The archives are kept, not downloaded
 

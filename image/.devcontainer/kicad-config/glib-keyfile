@@ -1,0 +1,10 @@
+# Installed as ~/.config/glib-2.0/settings/keyfile by the sandbox image,
+# which also sets GSETTINGS_BACKEND=keyfile so that this file is the one
+# GSettings reads.
+#
+# Applications that bring their own GTK - the KiCad AppImages do - take the
+# title-bar buttons from GSettings and not from /etc/xdg/gtk-3.0/settings.ini,
+# and the bundled schema defaults to the close button alone. This is the
+# layout of the host.
+[org/gnome/desktop/wm/preferences]
+button-layout='appmenu:minimize,maximize,close'

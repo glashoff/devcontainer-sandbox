@@ -32,7 +32,7 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
 | GitHub CLI `gh`, git | `/usr/bin` (`gh` not logged in; git has a name and email, and can fetch from GitHub but not push) |
 | Chromium and Firefox for Playwright | `/usr/local/share/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`) |
-| KiCad 10.0.6 and nightly 10.99 | `$KICAD_STABLE_APPDIR/bin`, `$KICAD_NIGHTLY_APPDIR/bin` (not on `PATH`, see below) |
+| KiCad 10.0.6 and nightly 10.99 | `kicad_stable`, `kicad_nightly` (shell functions, not on `PATH`, see below) |
 | Wayland client libraries, Mesa (OpenGL/Vulkan) | system |
 
 ## Installing project dependencies without root
@@ -97,8 +97,14 @@ as the mounts marked `readonly`.
 Two versions are installed, unpacked from the official AppImages, and neither
 is on `PATH`: with two of them a bare `kicad` would have to mean one.
 
-- Start them from the AppDir: `$KICAD_STABLE_APPDIR/bin/kicad`, or
-  `kicad-cli`, `eeschema`, `pcbnew`. `$KICAD_NIGHTLY_APPDIR` is 10.99.
+- Start them with `kicad_stable [project.kicad_pro]` or `kicad_nightly`,
+  which run in the background. Anything else from the AppDir goes through
+  `AppRun`: `$KICAD_STABLE_APPDIR/AppRun kicad-cli ...`, likewise `eeschema`,
+  `pcbnew`, and `$KICAD_NIGHTLY_APPDIR` for 10.99.
+- **Never `bin/kicad` directly.** Only `AppRun` links the bundled WebKit
+  helpers to `/tmp/.kicad-wk-helpers`, and without them KiCad dies as soon as
+  a window shows an HTML page, for instance the template chooser behind "New
+  project". A crash there is this, not a bug to hunt.
 - **The schematic IPC API exists only in the nightly.** In 10.0.6 those calls
   fail with "no handler available"; its board API works. If a schematic call
   fails, check which version is running before looking for another cause.
@@ -115,6 +121,7 @@ is on `PATH`: with two of them a bare `kicad` would have to mean one.
 - The first-start questions are already answered in `~/.config/kicad/`. If
   one appears anyway, say so instead of clicking it away: the image is then
   missing something.
+- `protoc` is installed, for generating the Python client's protobuf modules.
 
 ## Browsers
 

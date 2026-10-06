@@ -26,8 +26,9 @@ RUN cd /tmp/kicad \
     done \
  && rm -rf /tmp/kicad
 # The nightly uses the stable's libraries (KICAD10_*_DIR below), so its own
-# are 2.5 GB for nothing. The demos are example projects; a project that
-# wants them can copy them out of the stable's AppDir.
+# are 2.5 GB for nothing. The demos are example projects that no project needs
+# in order to work, 341 MB in each version; whoever wants them unpacks an
+# archive in kicad/ by hand.
 RUN rm -rf /opt/kicad/nightly/AppDir/share/kicad/symbols \
            /opt/kicad/nightly/AppDir/share/kicad/footprints \
            /opt/kicad/nightly/AppDir/share/kicad/3dmodels \
@@ -53,6 +54,9 @@ RUN apt-get update \
       wayland-utils mesa-utils-bin vulkan-tools \
       # Virtual environments, since pip into the system Python is blocked
       python3-venv python3-pip \
+      # protoc, for generating the protobuf modules of a gRPC or IPC client
+      # (KiCad's Python client needs it once per project)
+      protobuf-compiler \
       curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
@@ -159,31 +163,54 @@ ENV KICAD_STABLE_APPDIR=/opt/kicad/10.0.6/AppDir \
     KICAD10_FOOTPRINT_DIR=/opt/kicad/10.0.6/AppDir/share/kicad/footprints \
     KICAD10_3DMODEL_DIR=/opt/kicad/10.0.6/AppDir/share/kicad/3dmodels
 
+# Starting them: kicad_stable and kicad_nightly, defined for interactive
+# shells too, since /etc/bash.bashrc does not read /etc/profile.d. They go
+# through AppRun, which links the bundled WebKit helpers into place - see the
+# file, and README "KiCad".
+COPY kicad-config/kicad.sh /etc/profile.d/kicad.sh
+RUN printf '\n# Not read by /etc/profile.d for an interactive non-login shell.\n. /etc/profile.d/kicad.sh\n' \
+      >> /etc/bash.bashrc
+
 # KiCad asks at its first start about update checks, data collection and the
 # library tables. Answered by files, in the home the image creates, so a
 # fresh container asks nothing: enable_server for the IPC API, canvas_type 1
-# (accelerated), the prompts switched off, and the library tables from the
-# stable version's own template.
-COPY kicad-config/kicad_common.json kicad-config/kicad.json /tmp/kicad-config/
+# (accelerated), the prompts switched off, the symbol and footprint tables
+# from the stable version's own template, and an empty design block table
+# (there is no template for that one, and the question it would ask offers
+# libraries that do not exist here).
+COPY kicad-config/kicad_common.json kicad-config/kicad.json \
+     kicad-config/design-block-lib-table /tmp/kicad-config/
 RUN for version in 10.0 10.99; do \
       directory="/home/vscode/.config/kicad/$version" \
       && mkdir -p "$directory" \
-      && cp /tmp/kicad-config/kicad_common.json /tmp/kicad-config/kicad.json "$directory/" \
+      && cp /tmp/kicad-config/kicad_common.json /tmp/kicad-config/kicad.json \
+            /tmp/kicad-config/design-block-lib-table "$directory/" \
       && cp "$KICAD_STABLE_APPDIR/share/kicad/template/sym-lib-table" \
             "$KICAD_STABLE_APPDIR/share/kicad/template/fp-lib-table" "$directory/"; \
     done \
  && rm -rf /tmp/kicad-config \
  && chown -R vscode:vscode /home/vscode/.config/kicad
 
-# Two files the programs themselves cannot place, and both are wanted for
-# every window in every container, not only KiCad's:
+# Settings the programs themselves cannot place, all of them wanted for every
+# window in every container, not only KiCad's:
 #
 # drirc turns vsync off for KiCad's windows. GNOME sends no frame callbacks
 # to a covered window, Mesa's eglSwapBuffers then blocks the thread that also
 # serves KiCad's API, and the API stops answering while a window is covered.
 #
-# gtk-3.0/settings.ini gives GTK windows the title-bar buttons of the host.
-# GTK asks GNOME which buttons to draw, that setting does not exist in a
-# container, and the fallback is "close" alone - no minimise, no maximise.
+# The title-bar buttons take two files, because GTK has two sources for them
+# and an application uses the one its GTK was built for. GTK draws the title
+# bar itself and asks the desktop which buttons belong in it; in a container
+# nobody answers, and the fallback is the close button alone - no minimise,
+# no maximise. Debian's GTK reads the layout from gtk-3.0/settings.ini, an
+# application with a GTK of its own (the KiCad AppImages) reads GSettings,
+# whose only backend here is the keyfile one - hence GSETTINGS_BACKEND, which
+# also gives such applications a place to keep their settings at all.
 COPY kicad-config/drirc /etc/drirc
 COPY kicad-config/gtk-settings.ini /etc/xdg/gtk-3.0/settings.ini
+ENV GSETTINGS_BACKEND=keyfile
+COPY kicad-config/glib-keyfile /tmp/glib-keyfile
+RUN install -D -m 644 /tmp/glib-keyfile \
+      /home/vscode/.config/glib-2.0/settings/keyfile \
+ && rm /tmp/glib-keyfile \
+ && chown -R vscode:vscode /home/vscode/.config/glib-2.0
