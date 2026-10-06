@@ -1,3 +1,39 @@
+# KiCad, unpacked from the official AppImages. A stage of its own, so that
+# the archives (981 MB) stay out of the image: only the unpacked trees are
+# copied over. They are not downloaded during the build but kept next to this
+# file - a pinned nightly name disappears from the server sooner or later,
+# and a build of the image every project depends on must not hang on that
+# (kicad/download.sh fetches them once; README "KiCad").
+#
+# --appimage-extract unpacks into a directory named AppDir and leaves
+# squashfs-root beside it as a symlink to it, so AppDir is what is moved
+# here; moving squashfs-root would move the link and leave the tree behind.
+FROM mcr.microsoft.com/devcontainers/base:debian AS kicad
+COPY kicad/*.AppImage.tar kicad/sha256sums /tmp/kicad/
+RUN cd /tmp/kicad \
+ && sha256sum -c sha256sums \
+ && for archive in *.AppImage.tar; do \
+      case "$archive" in *nightly*) target=nightly ;; \
+                         *) target="$(echo "$archive" | sed -E 's/^kicad-([0-9.]+)-.*/\1/')" ;; \
+      esac \
+      && tar xf "$archive" \
+      && image="$(echo "$archive" | sed 's/\.tar$//')" \
+      && chmod +x "$image" \
+      && "./$image" --appimage-extract >/dev/null \
+      && mkdir -p "/opt/kicad/$target" \
+      && mv AppDir "/opt/kicad/$target/AppDir" \
+      && rm -f squashfs-root "$image" "$archive"; \
+    done \
+ && rm -rf /tmp/kicad
+# The nightly uses the stable's libraries (KICAD10_*_DIR below), so its own
+# are 2.5 GB for nothing. The demos are example projects; a project that
+# wants them can copy them out of the stable's AppDir.
+RUN rm -rf /opt/kicad/nightly/AppDir/share/kicad/symbols \
+           /opt/kicad/nightly/AppDir/share/kicad/footprints \
+           /opt/kicad/nightly/AppDir/share/kicad/3dmodels \
+           /opt/kicad/nightly/AppDir/share/kicad/demos \
+           /opt/kicad/10.0.6/AppDir/share/kicad/demos
+
 FROM mcr.microsoft.com/devcontainers/base:debian
 
 # Everything from Debian, kept current by the daily apt upgrade in
@@ -109,3 +145,45 @@ RUN version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)" \
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest \
  && rm -rf "$GOPATH/pkg" /root/.cache/go-build \
  && chown -R vscode:vscode "$GOPATH"
+
+# KiCad from the stage above: two versions, because 10.0.6 is the one users
+# can go back to and the nightly (10.99, becomes 11) is the one with the
+# schematic IPC API. Both are built against wxWidgets 3.3.2, which picks
+# Wayland or X11 at run time, so they need nothing of ours to show a window
+# (README "KiCad"). The libraries belong to the stable version and are used
+# by both, through the KICAD10_* variables the tables below refer to.
+COPY --from=kicad /opt/kicad /opt/kicad
+ENV KICAD_STABLE_APPDIR=/opt/kicad/10.0.6/AppDir \
+    KICAD_NIGHTLY_APPDIR=/opt/kicad/nightly/AppDir \
+    KICAD10_SYMBOL_DIR=/opt/kicad/10.0.6/AppDir/share/kicad/symbols \
+    KICAD10_FOOTPRINT_DIR=/opt/kicad/10.0.6/AppDir/share/kicad/footprints \
+    KICAD10_3DMODEL_DIR=/opt/kicad/10.0.6/AppDir/share/kicad/3dmodels
+
+# KiCad asks at its first start about update checks, data collection and the
+# library tables. Answered by files, in the home the image creates, so a
+# fresh container asks nothing: enable_server for the IPC API, canvas_type 1
+# (accelerated), the prompts switched off, and the library tables from the
+# stable version's own template.
+COPY kicad-config/kicad_common.json kicad-config/kicad.json /tmp/kicad-config/
+RUN for version in 10.0 10.99; do \
+      directory="/home/vscode/.config/kicad/$version" \
+      && mkdir -p "$directory" \
+      && cp /tmp/kicad-config/kicad_common.json /tmp/kicad-config/kicad.json "$directory/" \
+      && cp "$KICAD_STABLE_APPDIR/share/kicad/template/sym-lib-table" \
+            "$KICAD_STABLE_APPDIR/share/kicad/template/fp-lib-table" "$directory/"; \
+    done \
+ && rm -rf /tmp/kicad-config \
+ && chown -R vscode:vscode /home/vscode/.config/kicad
+
+# Two files the programs themselves cannot place, and both are wanted for
+# every window in every container, not only KiCad's:
+#
+# drirc turns vsync off for KiCad's windows. GNOME sends no frame callbacks
+# to a covered window, Mesa's eglSwapBuffers then blocks the thread that also
+# serves KiCad's API, and the API stops answering while a window is covered.
+#
+# gtk-3.0/settings.ini gives GTK windows the title-bar buttons of the host.
+# GTK asks GNOME which buttons to draw, that setting does not exist in a
+# container, and the fallback is "close" alone - no minimise, no maximise.
+COPY kicad-config/drirc /etc/drirc
+COPY kicad-config/gtk-settings.ini /etc/xdg/gtk-3.0/settings.ini

@@ -3,3 +3,8 @@ __pycache__/
 # Written by the devcontainer CLI during a build; a full build deletes it so
 # that the features resolve to their newest version again (build-image.py).
 image/.devcontainer/devcontainer-lock.json
+
+# The KiCad AppImage archives the image is built from: 981 MB, fetched once
+# with image/.devcontainer/kicad/download.sh and checked against the
+# sha256sums beside it, which is in git.
+image/.devcontainer/kicad/*.AppImage.tar

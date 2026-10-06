@@ -32,6 +32,7 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
 | GitHub CLI `gh`, git | `/usr/bin` (`gh` not logged in; git has a name and email, and can fetch from GitHub but not push) |
 | Chromium and Firefox for Playwright | `/usr/local/share/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`) |
+| KiCad 10.0.6 and nightly 10.99 | `$KICAD_STABLE_APPDIR/bin`, `$KICAD_NIGHTLY_APPDIR/bin` (not on `PATH`, see below) |
 | Wayland client libraries, Mesa (OpenGL/Vulkan) | system |
 
 ## Installing project dependencies without root
@@ -90,6 +91,30 @@ as the mounts marked `readonly`.
   file over your draft and make your change again if they say so.
 - Never commit `protected_draft/`. It carries a `.gitignore` of its own, and
   a push that contains it is refused.
+
+## KiCad
+
+Two versions are installed, unpacked from the official AppImages, and neither
+is on `PATH`: with two of them a bare `kicad` would have to mean one.
+
+- Start them from the AppDir: `$KICAD_STABLE_APPDIR/bin/kicad`, or
+  `kicad-cli`, `eeschema`, `pcbnew`. `$KICAD_NIGHTLY_APPDIR` is 10.99.
+- **The schematic IPC API exists only in the nightly.** In 10.0.6 those calls
+  fail with "no handler available"; its board API works. If a schematic call
+  fails, check which version is running before looking for another cause.
+- Open a project **through the project manager** (`kicad PROJECT.kicad_pro`,
+  then the schematic and the board from there): one socket then serves both
+  editors. `eeschema` and `pcbnew` started separately fight over the socket
+  name.
+- The libraries belong to the stable version and are used by both, through
+  `KICAD10_SYMBOL_DIR`, `KICAD10_FOOTPRINT_DIR` and `KICAD10_3DMODEL_DIR`.
+  The nightly has none of its own; do not look for them there.
+- A window needs the Wayland passthrough to be on for this project. Without
+  a display KiCad does not start, and that is a setting on the host, not
+  something to work around in here.
+- The first-start questions are already answered in `~/.config/kicad/`. If
+  one appears anyway, say so instead of clicking it away: the image is then
+  missing something.
 
 ## Browsers
 

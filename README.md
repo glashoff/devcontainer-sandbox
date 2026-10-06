@@ -28,6 +28,7 @@ never leaves the machine.
 - [Starting a project](#starting-a-project)
 - [Adding a tool](#adding-a-tool)
 - [Browsers](#browsers)
+- [KiCad](#kicad)
 - [Wayland](#wayland) · [Audio](#audio) · [GPU](#gpu)
 - [Server access](#server-access)
 - [Fetching from GitHub](#fetching-from-github)
@@ -146,6 +147,8 @@ once.
 - Rust: rustup with the current stable toolchain, rustfmt, clippy,
   cargo-audit, cargo-deny
 - Go: current release, gofmt, go vet, govulncheck
+- KiCad 10.0.6 and the nightly (10.99), from the official AppImages
+  ([KiCad](#kicad))
 - Chromium and Firefox for Playwright, ready to use ([Browsers](#browsers))
 - Wayland client libraries, Mesa (OpenGL/Vulkan, software rendering without GPU)
 
@@ -988,6 +991,78 @@ hidden in a large one. And a protected file that calls an unprotected one
 protects nothing: a `Makefile` under this and its scripts beside it, writable,
 only moves the problem.
 
+## KiCad
+
+Two versions are in the image, unpacked from the official AppImages:
+
+| | Where | Why |
+|---|---|---|
+| **10.0.6** (stable) | `$KICAD_STABLE_APPDIR` = `/opt/kicad/10.0.6/AppDir` | the version to go back to; its symbol, footprint and 3D libraries are used by both |
+| **nightly** (10.99, becomes 11) | `$KICAD_NIGHTLY_APPDIR` = `/opt/kicad/nightly/AppDir` | has the schematic IPC API, which 10.0.6 does not |
+
+They are built against wxWidgets 3.3.2, which picks Wayland or X11 at run
+time, and they bring their own libraries including Mesa, so they need nothing
+from us to show a window. A project starts them from the AppDir
+(`$KICAD_STABLE_APPDIR/bin/kicad`, `kicad-cli`, `eeschema`, `pcbnew`); they
+are deliberately not on `PATH`, because with two versions installed a bare
+`kicad` would have to mean one of them.
+
+The nightly has no libraries of its own — they are 2.5 GB that the stable
+already has — and finds the stable's through `KICAD10_SYMBOL_DIR`,
+`KICAD10_FOOTPRINT_DIR` and `KICAD10_3DMODEL_DIR`, which the image sets. The
+example projects (`demos`) are not in the image either. Everything else of
+the stable version is, 3D models included.
+
+**For a project this means:** turn on the [Wayland](#wayland) passthrough, or
+KiCad has no display and will not start. A [GPU](#gpu) is optional — without
+one Mesa renders in software. The IPC API needs `enable_server`, which is
+already in the configuration below, and its sockets live in `/tmp/kicad/`,
+which the project creates.
+
+**The first start asks nothing.** KiCad would ask about update checks, data
+collection and the library tables; the image answers all three by file, in
+`~/.config/kicad/10.0/` and `~/.config/kicad/10.99/`: `enable_server` on,
+`canvas_type` accelerated, both prompts off, update checks off (the version
+is pinned and the container should not phone out), and the library tables
+copied from the stable version's own template. A fresh container has them
+again, since they are part of the image, not of a volume.
+
+Two files are in the image that no program in the container could place
+itself, and both are meant for every window, not only KiCad's:
+
+- `/etc/drirc` turns vsync off for `kicad`, `eeschema` and `pcbnew`. GNOME
+  sends no frame callbacks to a covered window, Mesa's `eglSwapBuffers` then
+  blocks the thread that also serves KiCad's API, and the API stops answering
+  while a window is covered.
+- `/etc/xdg/gtk-3.0/settings.ini` sets `gtk-decoration-layout`. GTK
+  applications draw their own title bar and ask GNOME which buttons belong in
+  it; that setting does not exist in a container, and the fallback is "close"
+  alone. With it, every GTK window has minimise and maximise, as on the host.
+
+### The archives are kept, not downloaded
+
+`image/.devcontainer/kicad/` holds the two `.AppImage.tar` files, 981 MB, and
+they are not in git. The nightly is pinned by name and such names disappear
+from the server after a while; a build of the image that every project
+depends on must not hang on that. After a fresh clone, once:
+
+```sh
+image/.devcontainer/kicad/download.sh
+```
+
+It fetches both and checks them against `sha256sums`, which *is* in git. Be
+clear about what that proves: the files have not changed since they were
+first fetched here. It is not a signature check. KiCad puts a `.minisig`
+beside each download and the AppImage even ships the `minisign` binary, but
+no public key of the project could be found, so the signatures (kept beside
+the archives) are unverified.
+
+A new KiCad version means: put the new names in `sha256sums` with their
+checksums, run `download.sh`, build, and run through [the
+checks](#verify-the-sandbox) that matter for it. The unpacking happens in a
+build stage of its own, so the archives never become a layer of the image —
+only the unpacked trees are copied over, about 4.3 GB.
+
 ## Rolling back
 
 If a build breaks something, point the project at the previous build,
@@ -1017,6 +1092,8 @@ echo $DISPLAY                                       # empty (no X11)
 | [image/.devcontainer/sandbox/](image/.devcontainer/sandbox/) | the sandbox feature: firewall entrypoint, sshd hardening, sudo removal, agent check, volumes |
 | [image/.devcontainer/playwright-deps/](image/.devcontainer/playwright-deps/) | feature: browser system libraries |
 | [image/refresh.Dockerfile](image/refresh.Dockerfile) | daily update layer |
+| [image/.devcontainer/kicad/](image/.devcontainer/kicad/) | the KiCad archives (not in git), their checksums and `download.sh` |
+| [image/.devcontainer/kicad-config/](image/.devcontainer/kicad-config/) | KiCad's answers to its first-start questions, `drirc`, the GTK settings |
 | [image/claude-sandbox.md](image/claude-sandbox.md) | what Claude Code in the container knows about the sandbox and its tools; installed as `/etc/claude-code/CLAUDE.md` |
 | [host/setup.py](host/setup.py) | links the scripts, creates the commands and installs the systemd units on this host |
 | [host/setup-ca.py](host/setup-ca.py) | creates the SSH certificate authority and configures a server |

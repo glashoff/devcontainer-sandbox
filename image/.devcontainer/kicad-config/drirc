@@ -1,0 +1,21 @@
+<!--
+  Installed as /etc/drirc by the sandbox image.
+
+  Without this KiCad stops answering its IPC API while its windows are
+  covered: GNOME sends no frame callbacks to a covered window, Mesa's
+  eglSwapBuffers then blocks the thread that also serves the API. With vsync
+  off it does not wait.
+-->
+<driconf>
+  <device>
+    <application name="KiCad" executable="kicad">
+      <option name="vblank_mode" value="0"/>
+    </application>
+    <application name="KiCad Schematic Editor" executable="eeschema">
+      <option name="vblank_mode" value="0"/>
+    </application>
+    <application name="KiCad PCB Editor" executable="pcbnew">
+      <option name="vblank_mode" value="0"/>
+    </application>
+  </device>
+</driconf>
