@@ -32,6 +32,8 @@ You run inside a sandboxed dev container (devcontainer-sandbox). Installed to
 | clang, clangd, clang-format, clang-tidy, LLVM, lld | `/usr/bin` (Debian packages) |
 | GitHub CLI `gh`, git | `/usr/bin` (`gh` not logged in; git has a name and email, and can fetch from GitHub but not push) |
 | Chromium and Firefox for Playwright | `/usr/local/share/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`) |
+| `playwright-core` for Node | `/opt/node-tools/node_modules` (`NODE_PATH`, so `require` finds it anywhere) |
+| PDFs: `pdftotext`, `mutool`, `qpdf`; `pypdf` from Python | `/usr/bin`, system Python |
 | KiCad 10.0.6 and nightly 10.99 | `kicad_stable`, `kicad_nightly` (shell functions, not on `PATH`, see below) |
 | Wayland client libraries, Mesa (OpenGL/Vulkan) | system |
 
@@ -141,6 +143,49 @@ revision this image does not have. Running `npx playwright install chromium`
 then works (the directory is writable), but it downloads a few hundred MB that
 are lost on the next recreation — worth telling the user, since a rebuilt image
 would have the right one.
+
+## Pages that need JavaScript
+
+A shop or a parts catalogue often builds its page in the browser, so `curl`
+and WebFetch get a skeleton. The signs: HTML where you asked for a PDF, an
+empty list of results, or a login or consent page. Then render it:
+
+```js
+// node script.js - require finds the library from any folder (NODE_PATH),
+// but it is CommonJS, so wrap the await in a function.
+const { chromium } = require("playwright-core");
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  await page.goto(url, { waitUntil: "networkidle" });
+  const text = await page.evaluate(() => document.body.innerText);
+  const links = await page.evaluate(() =>
+    [...document.querySelectorAll("a[href]")].map(a => a.href));
+  await browser.close();
+  console.log(text, links);
+})();
+```
+
+Read the rendered text, or pick the link you need out of `a[href]`, and then
+download the file itself with `curl`. Such links are often signed and expire
+within minutes, so fetch one right after reading it instead of keeping it for
+later. Nothing has to be installed for this.
+
+## PDFs
+
+`pdftotext file.pdf -` prints the text, `mutool` shows the structure or
+renders a page as an image, `qpdf --decrypt` opens an encrypted or repairs a
+damaged file, and `pypdf` does the same from Python (AES-encrypted files
+included - `cryptography` is installed).
+
+A datasheet of a few hundred pages does not belong in your context. Extract
+the text into a file and search that file with `grep` for the sections you
+need; read only those.
+
+**Never download a PDF into a directory you run code from.** A downloaded
+file is somebody else's input, and in a folder whose contents get imported,
+built, globbed or published it can be picked up as if it were yours. Put it
+somewhere separate and read it from there.
 
 ## Optional, per project
 

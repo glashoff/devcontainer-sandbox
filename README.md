@@ -141,7 +141,7 @@ once.
 ## Tools in the image
 
 - Node LTS (nvm), Claude Code, GitHub CLI, git
-- Python (Debian's)
+- Python (Debian's), with `pypdf`, `cryptography` and `fonttools`
 - C/C++: gcc (`build-essential`), clang, clangd, clang-format, clang-tidy,
   LLVM, lld, gdb, cmake, ninja
 - Rust: rustup with the current stable toolchain, rustfmt, clippy,
@@ -149,7 +149,9 @@ once.
 - Go: current release, gofmt, go vet, govulncheck
 - KiCad 10.0.6 and the nightly (10.99), from the official AppImages, and
   `kigenai` for driving them ([KiCad](#kicad))
-- Chromium and Firefox for Playwright, ready to use ([Browsers](#browsers))
+- Chromium and Firefox for Playwright, with `playwright-core` for Node,
+  ready to use ([Browsers](#browsers))
+- PDFs: `pdftotext`, `mutool`, `qpdf`
 - Wayland client libraries, Mesa (OpenGL/Vulkan, software rendering without GPU)
 
 Per project, in Docker volumes that survive rebuilds: the Claude Code login
@@ -453,6 +455,19 @@ to the user, so Playwright downloads the missing revision next to the others.
 That copy lives in the container's writable layer, which means it is private to
 that container and gone after the next recreation — the next image build brings
 the matching one.
+
+The library is in the image as well, `playwright-core` in
+`/opt/node-tools/node_modules`, which `NODE_PATH` points at so that
+`require("playwright-core")` works from any folder while a project's own
+`node_modules` still comes first. It is there because a browser is not only
+for tests: a shop or a parts catalogue that builds its page in JavaScript has
+no content for `curl`, and rendering the page is the way to read it. The
+browsers are installed by exactly this version, not by whatever `latest`
+meant a layer later.
+
+It sits in a folder of its own rather than as a global npm package on purpose.
+Global packages live inside the Node version that installed them, and the
+daily update layer may move Node to a new LTS release.
 
 Do not set `PLAYWRIGHT_BROWSERS_PATH` per project. It would point Playwright at
 an empty directory and force a download that the image already covers.

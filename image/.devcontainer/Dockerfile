@@ -54,6 +54,12 @@ RUN apt-get update \
       wayland-utils mesa-utils-bin vulkan-tools \
       # Virtual environments, since pip into the system Python is blocked
       python3-venv python3-pip \
+      # Reading PDFs: pdftotext for the text, mutool for structure and for
+      # rendering a page, qpdf for an encrypted or damaged file. pypdf is the
+      # same from Python, with cryptography for AES-encrypted files and
+      # fonttools, without which it warns its way through every font it meets
+      poppler-utils mupdf-tools qpdf \
+      python3-pypdf python3-cryptography python3-fonttools \
       curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
@@ -80,11 +86,22 @@ RUN git clone https://github.com/nvm-sh/nvm.git "$NVM_DIR" \
 COPY npmrc /etc/npmrc
 ENV NPM_CONFIG_GLOBALCONFIG=/etc/npmrc
 
-# Browsers for Playwright, so that nothing has to be downloaded at run time.
+# Playwright: the library and the browsers it drives, so that nothing has to be
+# downloaded at run time. It is needed more often than for tests - a shop or a
+# parts catalogue that builds its page in JavaScript has no content for curl,
+# and a headless browser is the way to read it (see claude-sandbox.md "Pages
+# that need JavaScript").
+#
+# playwright-core is the library without the test runner. It lives in a folder
+# of its own instead of as a global npm package, because the daily update layer
+# may move Node to a new LTS release and a global package stays behind in the
+# version that installed it. NODE_PATH makes require() find it from any folder,
+# while a project's own node_modules still comes first.
+#
 # Playwright pins one browser revision per release (its browsers.json) and
-# refuses to start anything else, so the browsers are installed by the same
-# Playwright that will look for them later. The weekly rebuild of this image
-# moves both forward together; Playwright releases less often than that.
+# refuses to start anything else, so the browsers are installed by exactly the
+# version installed here, not by whatever "latest" means a layer later. The
+# weekly rebuild moves both forward together.
 #
 # PLAYWRIGHT_BROWSERS_PATH is the registry directory, for reading *and*
 # writing. It belongs to the user, not to root: a Playwright version that wants
@@ -92,8 +109,13 @@ ENV NPM_CONFIG_GLOBALCONFIG=/etc/npmrc
 # instead of failing with a permission error. That copy lives in the
 # container's writable layer, so it is neither shared with another project nor
 # kept beyond the next recreation.
-ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright
-RUN npx --yes playwright@latest install chromium firefox \
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
+    NODE_PATH=/opt/node-tools/node_modules
+RUN npm install --prefix /opt/node-tools playwright-core \
+ && version="$(node -p "JSON.parse(require('fs') \
+      .readFileSync('$NODE_PATH/playwright-core/package.json','utf8')).version")" \
+ && echo "playwright-core $version" \
+ && npx --yes "playwright@$version" install chromium firefox \
  && chown -R vscode:vscode "$PLAYWRIGHT_BROWSERS_PATH" \
  && rm -rf /root/.npm
 
