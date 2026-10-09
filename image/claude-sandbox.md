@@ -121,7 +121,9 @@ is on `PATH`: with two of them a bare `kicad` would have to mean one.
 - The first-start questions are already answered in `~/.config/kicad/`. If
   one appears anyway, say so instead of clicking it away: the image is then
   missing something.
-- `protoc` is installed, for generating the Python client's protobuf modules.
+- `kigenai` is on the `PATH` and edits the documents the KiCad editors
+  currently have open, through KiCad's API. How to use it, and the rules that
+  go with it, are in the `kigenai` skill.
 
 ## Browsers
 

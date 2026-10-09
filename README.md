@@ -141,14 +141,14 @@ once.
 ## Tools in the image
 
 - Node LTS (nvm), Claude Code, GitHub CLI, git
-- Python (Debian's), `protoc` for protobuf clients
+- Python (Debian's)
 - C/C++: gcc (`build-essential`), clang, clangd, clang-format, clang-tidy,
   LLVM, lld, gdb, cmake, ninja
 - Rust: rustup with the current stable toolchain, rustfmt, clippy,
   cargo-audit, cargo-deny
 - Go: current release, gofmt, go vet, govulncheck
-- KiCad 10.0.6 and the nightly (10.99), from the official AppImages
-  ([KiCad](#kicad))
+- KiCad 10.0.6 and the nightly (10.99), from the official AppImages, and
+  `kigenai` for driving them ([KiCad](#kicad))
 - Chromium and Firefox for Playwright, ready to use ([Browsers](#browsers))
 - Wayland client libraries, Mesa (OpenGL/Vulkan, software rendering without GPU)
 
@@ -1076,6 +1076,39 @@ for itself, and all of them are meant for every window, not only KiCad's:
   the KiCad AppImages do. The second works only with `GSETTINGS_BACKEND=keyfile`,
   which the image sets for every process: a container has no dconf, so without
   it GSettings keeps everything in memory and reads no file at all.
+
+### KiGenAI
+
+`kigenai` edits the documents the KiCad editors currently have open, through
+KiCad's API; it is the tool a Claude uses to draw on a board together with the
+user. It comes from
+[github.com/glashoff/kigenai](https://github.com/glashoff/kigenai), is cloned
+at build time into `/opt/kigenai` with a virtual environment of its own, and
+is linked into `/usr/local/bin`. It finds KiCad through the `KICAD_*`
+variables above and writes what it produces into `.kigenai/` in the current
+folder. Do not move the folder afterwards: the environment points back at it
+through a `.pth` file.
+
+The rules for using it are installed as a skill for every container of this
+image, assembled at build time from the `CLAUDE.md` that comes with the
+package:
+
+```
+/etc/claude-code/.claude/skills/kigenai/SKILL.md
+```
+
+That is why it is pinned twice, by tag **and** by the commit that tag stood
+on, with the build failing if the two disagree. Whoever can move that tag
+would otherwise be writing instructions for every Claude in every container
+here. Mind the kind of tag: an annotated tag's ref is the tag object, not the
+commit, and the commit is what the build compares. A skill rather than a part
+of `/etc/claude-code/CLAUDE.md`, because of a skill only the description
+stands in every session's context while its text is loaded when a Claude
+decides it applies - most projects never touch KiCad.
+
+A new version means raising `KIGENAI_TAG` and `KIGENAI_COMMIT` together and
+rebuilding; read what changed in that `CLAUDE.md` before you do, since it is
+the text every container will follow.
 
 ### The archives are kept, not downloaded
 

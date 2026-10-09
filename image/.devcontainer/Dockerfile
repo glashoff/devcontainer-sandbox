@@ -54,9 +54,6 @@ RUN apt-get update \
       wayland-utils mesa-utils-bin vulkan-tools \
       # Virtual environments, since pip into the system Python is blocked
       python3-venv python3-pip \
-      # protoc, for generating the protobuf modules of a gRPC or IPC client
-      # (KiCad's Python client needs it once per project)
-      protobuf-compiler \
       curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
@@ -214,3 +211,36 @@ RUN install -D -m 644 /tmp/glib-keyfile \
       /home/vscode/.config/glib-2.0/settings/keyfile \
  && rm /tmp/glib-keyfile \
  && chown -R vscode:vscode /home/vscode/.config/glib-2.0
+
+# KiGenAI, the command with which a Claude edits the open KiCad editors
+# through KiCad's IPC API. Pinned to a tag and checked against the commit that
+# tag stood on, so a moved tag cannot change what is installed. The setup
+# generates KiCad's Python client from pinned sources and brings its own
+# protobuf compiler through grpcio-tools, so no system package is needed.
+#
+# The environment points back at /opt/kigenai through a .pth file, so the
+# folder must stay where it is. Nothing is written there at run time: root
+# owns it, everyone may read and run it. A new nightly or a fix means a new
+# tag from the project; raise both lines here and rebuild.
+ARG KIGENAI_TAG=v0.2.0
+ARG KIGENAI_COMMIT=733d662fe3199a16536af65bef4147ba7ee942ce
+RUN git clone --depth 1 --branch "$KIGENAI_TAG" \
+      https://github.com/glashoff/kigenai /opt/kigenai \
+ && test "$(git -C /opt/kigenai rev-parse HEAD)" = "$KIGENAI_COMMIT" \
+ && cd /opt/kigenai \
+ && python3 -m kigenai.setup \
+ && rm -rf /opt/kigenai/.git \
+ && ln -s /opt/kigenai/.venv/bin/kigenai /usr/local/bin/kigenai \
+ && kigenai --help >/dev/null
+
+# How to use it, as a skill rather than as part of /etc/claude-code/CLAUDE.md:
+# of a skill only the description stands in every session's context, and the
+# rules themselves are loaded when a Claude decides they apply - KiCad is not
+# every project's business. /etc/claude-code/.claude/skills is where Claude
+# Code looks for the skills of a whole machine. Assembled from the file that
+# comes with the package, so that the rules exist as one text only.
+COPY kigenai-skill-header.md /tmp/kigenai-skill-header.md
+RUN mkdir -p /etc/claude-code/.claude/skills/kigenai \
+ && cat /tmp/kigenai-skill-header.md /opt/kigenai/CLAUDE.md \
+      > /etc/claude-code/.claude/skills/kigenai/SKILL.md \
+ && rm /tmp/kigenai-skill-header.md
