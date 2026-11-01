@@ -14,6 +14,7 @@ back. Runs daily from devcontainer-build-image.timer (see README.md).
 import argparse
 import os
 import re
+import socket
 import sys
 import time
 from pathlib import Path
@@ -24,6 +25,9 @@ from devcontainer_cli import Cli, die, docker, docker_value  # noqa: E402
 IMAGE = "local/devcontainer-sandbox"
 BASE_IMAGE = "local/devcontainer-sandbox-base"
 FULL_EVERY_DAYS = 7
+# Hosts the build fetches from, as a test of whether the network is up.
+NETWORK_HOSTS = ("registry.npmjs.org", "index.crates.io")
+NETWORK_WAIT_SECONDS = 600
 STATE_DIR = Path(
     os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state"
 ) / "devcontainer-sandbox"
@@ -36,6 +40,35 @@ def base_image_of(dockerfile):
         if match:
             return match.group(1)
     die(f"No FROM line in {dockerfile}")
+
+
+def wait_for_network():
+    """Waits until names resolve, because the timer catches up after a boot.
+
+    The service asks systemd for network-online.target, but it is a user unit
+    and that target means nothing there: a run caught up right after booting
+    starts while the resolver is still coming up. Every fetch in the build
+    then fails at once - cargo gives up after a few tries - and a full build
+    is thrown away for nothing. So wait here, and say plainly when it is the
+    network that stopped us.
+    """
+    deadline = time.time() + NETWORK_WAIT_SECONDS
+    waited = False
+    while True:
+        try:
+            for host in NETWORK_HOSTS:
+                socket.getaddrinfo(host, 443)
+            if waited:
+                print("Names resolve, going on")
+            return
+        except OSError as error:
+            if time.time() >= deadline:
+                die(f"Not building: no name resolution after "
+                    f"{NETWORK_WAIT_SECONDS // 60} minutes ({error})")
+            if not waited:
+                print(f"Waiting for the network ({error})")
+                waited = True
+            time.sleep(10)
 
 
 def main():
@@ -58,6 +91,7 @@ def main():
     if (time.time() - last_full) / 86400 >= FULL_EVERY_DAYS:
         full = True
 
+    wait_for_network()
     cli = Cli(repo)
 
     if docker_value("image", "inspect", f"{IMAGE}:latest") is not None:

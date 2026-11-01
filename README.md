@@ -215,8 +215,12 @@ day. Tools that must update daily therefore belong in
 [refresh.Dockerfile](image/refresh.Dockerfile), not in a feature.
 
 The timer runs the build daily; if the machine was off or suspended, it catches
-up afterwards (it never wakes it). `devcontainer-start` then sees the new image
-and recreates the container. Only the project folder and the volumes survive,
+up afterwards (it never wakes it). Such a run starts right after booting, while
+the resolver may still be coming up, and the service's `network-online.target`
+is of no help there - it is a user unit, and the target belongs to the system
+instance. The build therefore waits up to ten minutes for names to resolve and
+otherwise says so instead of throwing away a build whose every download fails.
+`devcontainer-start` then sees the new image and recreates the container. Only the project folder and the volumes survive,
 which is where everything of value lives; tools installed by hand inside the
 container are gone. A running container is not updated, but one nobody uses
 is stopped after half an hour ([Idle containers](#idle-containers)), so the
