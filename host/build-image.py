@@ -94,8 +94,15 @@ def main():
     wait_for_network()
     cli = Cli(repo)
 
-    if docker_value("image", "inspect", f"{IMAGE}:latest") is not None:
-        docker("tag", f"{IMAGE}:latest", f"{IMAGE}:previous")
+    # Hold on to the image we are replacing while the build runs. :previous
+    # must move only once the new image stands - a build that fails has to
+    # leave the image to roll back to where it was, and tagging it beforehand
+    # made :previous and :latest the same thing for days. Remembering the id
+    # alone is not enough: the containerd image store drops an image as soon
+    # as no tag points at it, and the build below moves :latest away from it.
+    hold = f"{IMAGE}:rollback"
+    if docker_value("image", "inspect", "--format", "{{.Id}}", f"{IMAGE}:latest"):
+        docker("tag", f"{IMAGE}:latest", hold)
 
     if full:
         # --no-cache re-runs every step, but it does not fetch a newer base
@@ -130,6 +137,12 @@ def main():
 
     if full:
         last_full_file.write_text(str(int(time.time())))
+
+    # The new image stands, so the one it replaces becomes the rollback point
+    # and the holding tag goes (it only untags, :previous keeps the image).
+    if docker_value("image", "inspect", "--format", "{{.Id}}", hold):
+        docker("tag", hold, f"{IMAGE}:previous")
+        docker("image", "rm", hold)
 
     # Old builds are untagged now; remove those no container uses any more.
     docker_value("image", "prune", "-f")

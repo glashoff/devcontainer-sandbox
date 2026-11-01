@@ -229,9 +229,13 @@ container, `devcontainer-start` leaves it as it is and the update waits for a
 later start (`--rebuild` forces it). `devcontainer-start` warns if the image is
 older than 48 hours.
 
-Before each build the current image is tagged
-`local/devcontainer-sandbox:previous`. Old builds are removed afterwards
-(`docker image prune`).
+Once a build has succeeded, the image it replaces is tagged
+`local/devcontainer-sandbox:previous`, and not a moment earlier: a build that
+fails leaves the image as it is, and so the one to roll back to has to stay
+where it is too. While the build runs, that image carries a
+`:rollback` tag of its own, because the containerd image store drops an image
+as soon as no tag points at it and the new build moves `:latest` away from it.
+Old builds are removed afterwards (`docker image prune`).
 
 The image does not update a project's own dependencies (npm, pip, cargo) in the
 project folder. Security of the host itself (kernel, Docker) comes from the
