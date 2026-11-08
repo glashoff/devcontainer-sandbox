@@ -264,6 +264,13 @@ A container counts as in use while
   detached, so it keeps working with no connection at all; a Claude that waits
   for permission counts as well, since stopping would end its task.
 
+The voice app's Claude runs only as long as one message takes, which can begin
+and end between two looks. The half hour therefore counts from Claude's last
+trace in the container as well: its conversation transcripts in
+`~/.claude/projects` and the run folders of agent-relay-mcp in
+`~/.cache/agent-relay-mcp`, whichever was written last. Right before stopping
+a container, the timer looks once more.
+
 A process of its own, such as a web server, does not count. To keep such a
 container running, set this in its `.devcontainer/sandbox.env`:
 
@@ -1195,7 +1202,8 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/build-image.py](host/build-image.py) | builds the image; `devcontainer-build-image` |
 | [host/devcontainer-build-image.timer](host/devcontainer-build-image.timer) | runs the build daily |
 | [host/idle-stop.py](host/idle-stop.py), [devcontainer-idle-stop.timer](host/devcontainer-idle-stop.timer) | stops containers nobody uses; `devcontainer-stop-idle` |
-| [host/activity.py](host/activity.py) | whether a container is in use (SSH session, Claude Code) |
+| [host/activity.py](host/activity.py) | whether a container is in use (SSH session, Claude Code), Claude's last trace) |
+| [tests/](tests/) | tests for the host scripts; `python3 -m unittest discover tests` |
 | [host/build-finished.py](host/build-finished.py) | desktop notification and mail when a build finished |
 | [host/start.py](host/start.py) | starts a project's container and opens the editor over SSH; `devcontainer-start` |
 | [host/deploy_key.py](host/deploy_key.py) | the read-only GitHub deploy key of a project |

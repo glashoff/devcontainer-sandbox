@@ -4,9 +4,19 @@ A container is in use while an SSH session is open in it (the editor, or
 someone logged in) or a Claude Code process runs in it, whoever started it:
 the voice app runs Claude detached, so it keeps working with no connection at
 all. Imported by idle-stop.py and start.py.
+
+A process list is a snapshot, though, and the voice app's Claude runs only as
+long as one message takes, which can be over between two looks. What Claude
+last wrote (last_claude_activity) covers that gap.
 """
 
 from devcontainer_cli import docker_value
+
+# Where Claude Code leaves a trace of every turn: its conversation transcripts,
+# and the run folders of agent-relay-mcp, the server through which the voice
+# app sends its messages (one folder per message, written until it is done).
+CLAUDE_TRACES = ["/root/.claude/projects", "/root/.cache/agent-relay-mcp",
+                 "/home/*/.claude/projects", "/home/*/.cache/agent-relay-mcp"]
 
 # The feature every sandbox container is built with, as the devcontainer CLI
 # records it in the container's metadata label.
@@ -71,6 +81,25 @@ def claude_running(container_id):
     if found is None:
         return None
     return any(is_claude(name) for name, _ in found)
+
+
+def last_claude_activity(container_id):
+    """When Claude Code last wrote one of its traces, as a Unix time.
+
+    0 if there is none, None if the container could not be looked at.
+    """
+    # Folders that do not exist are skipped quietly; the pipeline's status is
+    # tail's, so a missing one does not count as a failure.
+    newest = docker_value(
+        "exec", container_id, "sh", "-c",
+        f"find {' '.join(CLAUDE_TRACES)} -printf '%T@\\n' 2>/dev/null"
+        " | sort -n | tail -n 1")
+    if newest is None:
+        return None
+    try:
+        return float(newest) if newest else 0
+    except ValueError:
+        return None
 
 
 def activity(container_id):
