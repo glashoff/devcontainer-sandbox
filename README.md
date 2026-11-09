@@ -35,6 +35,7 @@ never leaves the machine.
 - [Pushing from the host](#pushing-from-the-host)
 - [Claude Code's login](#claude-codes-login)
 - [Protected files](#protected-files)
+- [Deploying from the host](#deploying-from-the-host)
 - [Rolling back](#rolling-back)
 - [Verify the sandbox](#verify-the-sandbox)
 - [Repository layout](#repository-layout)
@@ -297,18 +298,20 @@ end up in another project's container without warning; start a project with
 
 [setup.py](host/setup.py) links `~/.local/share/devcontainer-sandbox` to this
 clone's `host/` directory, creates the `devcontainer-start`,
-`devcontainer-build-image`, `devcontainer-push`, `devcontainer-approve` and
-`devcontainer-stop-idle` commands in `~/.local/bin`,
+`devcontainer-build-image`, `devcontainer-push`, `devcontainer-approve`,
+`devcontainer-deploy` and `devcontainer-stop-idle` commands in `~/.local/bin`,
 installs the systemd units, starts the timers for the daily build and for
 [idle containers](#idle-containers) (`--no-timer` to skip that), puts a configuration template in
 `~/.config/devcontainer-sandbox/config`, creates `claude-tokens/` next to it
-([Claude Code's login](#claude-codes-login)) and adds two entries to the file
+([Claude Code's login](#claude-codes-login)) and adds entries to the file
 manager: right-click a project folder, *Open With*, and **Dev container**
 starts the container and opens the editor, **Git push** pushes the project
 ([Pushing from the host](#pushing-from-the-host)), **Protected files** applies
-what the container proposed ([Protected files](#protected-files)). They run in
-a terminal window: the first keeps it open if something went wrong, the others
-until what they printed has been read.
+what the container proposed ([Protected files](#protected-files)), **Deploy**
+runs the project's `deploy.py`
+([Deploying from the host](#deploying-from-the-host)). They run in a terminal
+window: the first keeps it open if something went wrong, the others until
+what they printed has been read.
 
 Changes in `image/` are picked up by the next build
 (`devcontainer-build-image` to build right away).
@@ -1021,6 +1024,40 @@ hidden in a large one. And a protected file that calls an unprotected one
 protects nothing: a `Makefile` under this and its scripts beside it, writable,
 only moves the problem.
 
+## Deploying from the host
+
+Some of a project's work needs what the container is not given: root on a
+server, a password, the host's SSH agent. A project keeps that in a
+`deploy.py` that runs on the host only, and
+
+```sh
+devcontainer-deploy ~/Projects/NAME                 # or: right-click, Open With > Deploy
+devcontainer-deploy ~/Projects/NAME -- --dry-run    # arguments after -- go to deploy.py
+```
+
+runs it there, in the project directory, with the terminal attached, so it
+can ask for a user name or a password. From the file manager the window stays
+open until Enter, so the output can be read.
+
+[deploy.py](host/deploy.py) runs it only if it is a
+[protected file](#protected-files), mounted read-only in `devcontainer.json`;
+otherwise it would run on the host whatever the container last wrote there.
+The same holds for everything `deploy.py` reads or runs from the project (a
+config file it installs, a script it calls): mount those read-only as well.
+Python's own import path is taken care of: the script runs with
+`PYTHONSAFEPATH`, so an `argparse.py` next to it is not what
+`import argparse` finds.
+
+Before running it, it looks for open proposals in `protected_draft/` and
+offers `devcontainer-approve` for them, since a deploy runs the protected
+files as they are, not as proposed. It says so when `deploy.py` itself is
+among them. If they stay open, it asks whether to deploy anyway (default:
+no).
+
+The *Open With* entry is offered for every folder, since a desktop entry
+cannot look into it; in a folder without `deploy.py` it says so and does
+nothing.
+
 ## KiCad
 
 Two versions are in the image, unpacked from the official AppImages:
@@ -1210,6 +1247,7 @@ echo $DISPLAY                                       # empty (no X11)
 | [host/remote.py](host/remote.py) | the repository a project belongs to (`GIT_REMOTE_URL`), and its comparison with `.git/config` |
 | [host/protected.py](host/protected.py) | which paths a project protects, and the drafts for them |
 | [host/approve.py](host/approve.py) | applies what a container proposed for the protected files; `devcontainer-approve` |
+| [host/deploy.py](host/deploy.py) | runs a project's protected `deploy.py` on the host, after offering to apply open proposals; `devcontainer-deploy` |
 | [host/push.py](host/push.py) | pushes a project's branch from the host, fast-forward only, after showing what it contains; `devcontainer-push` |
 | [host/initialize.py](host/initialize.py) | creates the bind-mount sources on the host (`CLAUDE.md`, SSH key) |
 | [host/devcontainer_cli.py](host/devcontainer_cli.py) | runs the devcontainer CLI (shared by the scripts) |

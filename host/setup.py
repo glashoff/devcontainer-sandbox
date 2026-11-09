@@ -3,8 +3,9 @@
 
 Links ~/.local/share/devcontainer-sandbox to this repository's host/ directory,
 creates the devcontainer-start, devcontainer-build-image, devcontainer-push,
-devcontainer-approve and devcontainer-stop-idle commands, installs the systemd units and starts the
-timers: the daily build and the check for idle containers.
+devcontainer-approve, devcontainer-deploy and devcontainer-stop-idle commands,
+installs the systemd units and starts the timers: the daily build and the
+check for idle containers.
 
 Run it once, from the clone. Changes in host/ take effect immediately
 afterwards, since nothing is copied.
@@ -32,11 +33,13 @@ COMMANDS = {"devcontainer-start": "start.py",
             "devcontainer-build-image": "build-image.py",
             "devcontainer-push": "push.py",
             "devcontainer-approve": "approve.py",
+            "devcontainer-deploy": "deploy.py",
             "devcontainer-stop-idle": "idle-stop.py"}
 # Desktop entry -> the placeholder in it and the script that replaces it.
 ENTRIES = {"devcontainer-start.desktop": ("@START@", "start.py"),
            "devcontainer-push.desktop": ("@PUSH@", "push.py"),
-           "devcontainer-approve.desktop": ("@APPROVE@", "approve.py")}
+           "devcontainer-approve.desktop": ("@APPROVE@", "approve.py"),
+           "devcontainer-deploy.desktop": ("@DEPLOY@", "deploy.py")}
 TIMERS = ["devcontainer-build-image.timer", "devcontainer-idle-stop.timer"]
 # Files an earlier version of setup.py copied into DEST instead of linking it.
 COPIED_BY_OLD_SETUP = ["start.py", "build-image.py", "initialize.py",
@@ -97,7 +100,7 @@ def install_desktop_entries() -> None:
         subprocess.run(["update-desktop-database", str(APPLICATIONS_DIR)],
                        capture_output=True)
     print("File manager entries: right-click a project folder, Open With > "
-          "Dev container (start it), Git push or Protected files")
+          "Dev container (start it), Git push, Protected files or Deploy")
 
 
 def systemctl(*args: str) -> int:
